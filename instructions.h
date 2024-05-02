@@ -16,6 +16,7 @@ enum class InstructionType {
   RET,
   RETI,
   JP,
+  JR,
   CALL,
   RST,
   RLA,
@@ -26,12 +27,16 @@ enum class InstructionType {
   PUSH,
   DEC,
   INC,
+  CPL,
+  CCF,
+  SCF,
 
   RLCA,
   RRCA,
 
   HALT,
   STOP,
+  DAA,
 
   // extended instruction set
   RLC,
@@ -68,28 +73,53 @@ struct InstructionNoOp : Instruction {
   }
 };
 
+enum class LoadOperandType {
+  REGISTER, // R
+  AS_ADDRESS, // [R]
+  AS_ADDRESS_INC, // [R+]
+  AS_ADDRESS_DEC // [R-]
+};
+
 struct InstructionLoad : Instruction {
   ArithmeticTarget to_;
-  bool to_memory_;
+  LoadOperandType to_type_;
   ArithmeticTarget from_;
-  bool from_memory_;
+  LoadOperandType from_type_;
 
   int cycles_;
 
-  InstructionLoad(ArithmeticTarget to, bool to_memory, ArithmeticTarget from, bool from_memory, int cycles)
-    : Instruction(InstructionType::LD), to_(to), to_memory_(to_memory), from_(from), from_memory_(from_memory), cycles_(cycles) { }
+  InstructionLoad(ArithmeticTarget to, ArithmeticTarget from, LoadOperandType from_type, int cycles)
+      : Instruction(InstructionType::LD), to_(to), to_type_(LoadOperandType::REGISTER), from_(from), from_type_(LoadOperandType::REGISTER), cycles_(cycles) { }
+
+  InstructionLoad(ArithmeticTarget to, LoadOperandType to_type, ArithmeticTarget from, LoadOperandType from_type, int cycles)
+    : Instruction(InstructionType::LD), to_(to), to_type_(to_type), from_(from), from_type_(from_type), cycles_(cycles) { }
 
   int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+    u16 r = registers.Get(from_);
     u16 value;
-    if (from_memory_) {
-      value = bus.Read8(registers.Get(from_));
+    if (from_type_ == LoadOperandType::AS_ADDRESS || from_type_ == LoadOperandType::AS_ADDRESS_INC || from_type_ == LoadOperandType::AS_ADDRESS_DEC) {
+      value = bus.Read8(r);
     } else {
-      value = registers.Get(from_);
+      value = r;
     }
-    if (to_memory_) {
-      bus.Write8(registers.Get(to_), value);
+    if (from_type_ == LoadOperandType::AS_ADDRESS_INC) {
+      registers.Set(from_, r + 1);
+    } else if (from_type_ == LoadOperandType::AS_ADDRESS_DEC) {
+      registers.Set(from_, r - 1);
+    }
+
+    if (to_type_ == LoadOperandType::AS_ADDRESS || to_type_ == LoadOperandType::AS_ADDRESS_INC || to_type_ == LoadOperandType::AS_ADDRESS_DEC) {
+      u16 address = registers.Get(to_);
+      bus.Write8(address, value);
     } else {
       registers.Set(to_, value);
+    }
+    if (to_type_ == LoadOperandType::AS_ADDRESS_INC) {
+      u16 r2 = registers.Get(to_);
+      registers.Set(to_, r2 + 1);
+    } else if (to_type_ == LoadOperandType::AS_ADDRESS_DEC) {
+      u16 r2 = registers.Get(to_);
+      registers.Set(to_, r2 - 1);
     }
     return cycles_;
   }
@@ -122,7 +152,6 @@ struct InstructionLoadImmediate : Instruction {
     return cycles_;
   }
 };
-
 
 struct InstructionLoadToAddress : Instruction {
   u16 value_;
@@ -233,7 +262,6 @@ struct InstructionRotateLeft : Instruction {
   }
 };
 
-
 struct InstructionRotateRight : Instruction {
   ArithmeticTarget to_;
   bool set_zero_;
@@ -267,20 +295,35 @@ struct InstructionStop : Instruction {
   }
 };
 
+enum class IncDecOperandType {
+  REGISTER,
+  MEMORY
+};
+
 struct InstructionInc : Instruction {
   ArithmeticTarget to_;
+  IncDecOperandType to_type_;
   int cycles_;
 
   InstructionInc(ArithmeticTarget to, int cycles)
-      : Instruction(InstructionType::INC), to_(to), cycles_(cycles) { }
+      : Instruction(InstructionType::INC), to_(to), to_type_(IncDecOperandType::REGISTER), cycles_(cycles) { }
+
+  InstructionInc(ArithmeticTarget to, IncDecOperandType to_type, int cycles)
+      : Instruction(InstructionType::INC), to_(to), to_type_(to_type), cycles_(cycles) { }
 
   int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
-    if (is_16bit_register(to_)) {
-      u16 result = cpu.Inc16(registers.Get(to_));
-      registers.Set(to_, result);
+    if (to_type_ == IncDecOperandType::REGISTER) {
+      if (is_16bit_register(to_)) {
+        u16 result = cpu.Inc16(registers.Get(to_));
+        registers.Set(to_, result);
+      } else {
+        u8 result = cpu.Inc8((u8) registers.Get(to_));
+        registers.Set(to_, result);
+      }
     } else {
-      u8 result = cpu.Inc8((u8) registers.Get(to_));
-      registers.Set(to_, result);
+      u16 address = registers.Get(to_);
+      u8 result = cpu.Inc8(bus.memory_[address]);
+      bus.Write8(address, result);
     }
     return cycles_;
   }
@@ -288,18 +331,28 @@ struct InstructionInc : Instruction {
 
 struct InstructionDec : Instruction {
   ArithmeticTarget to_;
+  IncDecOperandType to_type_;
   int cycles_;
 
   InstructionDec(ArithmeticTarget to, int cycles)
       : Instruction(InstructionType::DEC), to_(to), cycles_(cycles) { }
 
+  InstructionDec(ArithmeticTarget to, IncDecOperandType to_type, int cycles)
+      : Instruction(InstructionType::DEC), to_(to), to_type_(to_type), cycles_(cycles) { }
+
   int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
-    if (is_16bit_register(to_)) {
-      u16 result = cpu.Dec16(registers.Get(to_));
-      registers.Set(to_, result);
+    if (to_type_ == IncDecOperandType::REGISTER) {
+      if (is_16bit_register(to_)) {
+        u16 result = cpu.Dec16(registers.Get(to_));
+        registers.Set(to_, result);
+      } else {
+        u8 result = cpu.Dec8((u8) registers.Get(to_));
+        registers.Set(to_, result);
+      }
     } else {
-      u8 result = cpu.Dec8((u8) registers.Get(to_));
-      registers.Set(to_, result);
+      u16 address = registers.Get(to_);
+      u8 result = cpu.Dec8(bus.memory_[address]);
+      bus.Write8(address, result);
     }
     return cycles_;
   }
@@ -334,11 +387,11 @@ struct InstructionAdd : Instruction {
   }
 };
 
-struct InstructionJump : Instruction {
+struct InstructionJumpRelative : Instruction {
   s8 value_;
 
-  InstructionJump(s8 value)
-      : Instruction(InstructionType::JP), value_(value) { }
+  InstructionJumpRelative(s8 value)
+      : Instruction(InstructionType::JR), value_(value) { }
 
   int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
     registers.pc += value_;
@@ -346,13 +399,12 @@ struct InstructionJump : Instruction {
   }
 };
 
-
-struct InstructionJumpZero : Instruction {
+struct InstructionJumpRelativeIfZero : Instruction {
   s8 value_;
   bool is_not_;
 
-  InstructionJumpZero(s8 value, bool is_not)
-      : Instruction(InstructionType::JP), value_(value), is_not_(is_not) { }
+  InstructionJumpRelativeIfZero(s8 value, bool is_not)
+      : Instruction(InstructionType::JR), value_(value), is_not_(is_not) { }
 
   int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
     if (registers.flags.f.zero != is_not_) {
@@ -363,12 +415,12 @@ struct InstructionJumpZero : Instruction {
   }
 };
 
-struct InstructionJumpCarry : Instruction {
+struct InstructionJumpRelativeIfCarry : Instruction {
   s8 value_;
   bool is_not_;
 
-  InstructionJumpCarry(s8 value, bool is_not)
-      : Instruction(InstructionType::JP), value_(value), is_not_(is_not) { }
+  InstructionJumpRelativeIfCarry(s8 value, bool is_not)
+      : Instruction(InstructionType::JR), value_(value), is_not_(is_not) { }
 
   int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
     if (registers.flags.f.carry != is_not_) {
@@ -376,6 +428,74 @@ struct InstructionJumpCarry : Instruction {
       return 12;
     }
     return 8;
+  }
+};
+
+// Decimal Adjust Accumulator
+struct InstructionDAA : Instruction {
+
+  InstructionDAA() : Instruction(InstructionType::DAA) { }
+
+  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+    if (!registers.flags.f.subtract) {
+      if (registers.flags.f.half_carry || (registers.a & 0xF) > 9) {
+        registers.a += 0x06;
+      }
+      if (registers.flags.f.carry || registers.a > 0x9F) {
+        registers.a += 0x60;
+      }
+    } else {
+      if (registers.flags.f.half_carry) {
+        registers.a = (registers.a - 0x06) & 0xFF;
+      }
+      if (registers.flags.f.carry) {
+        registers.a -= 0x60;
+      }
+    }
+    registers.flags.f.half_carry = false;
+    registers.flags.f.zero = registers.a == 0;
+    if (registers.a > 0x99) {
+      registers.flags.f.carry = true;
+      registers.a -= 0x60;
+    }
+    return 4;
+  }
+};
+
+// Logical Not
+struct InstructionComplement : Instruction {
+
+  InstructionComplement() : Instruction(InstructionType::CPL) { }
+
+  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+    registers.a = ~registers.a;
+    registers.flags.f.subtract = true;
+    registers.flags.f.half_carry = true;
+    return 4;
+  }
+};
+
+struct InstructionComplementCarryFlag : Instruction {
+
+  InstructionComplementCarryFlag() : Instruction(InstructionType::CCF) { }
+
+  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+    registers.flags.f.carry = !registers.flags.f.carry;
+    registers.flags.f.subtract = false;
+    registers.flags.f.half_carry = false;
+    return 4;
+  }
+};
+
+struct InstructionSetCarryFlag : Instruction {
+
+  InstructionSetCarryFlag() : Instruction(InstructionType::SCF) { }
+
+  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+    registers.flags.f.carry = true;
+    registers.flags.f.subtract = false;
+    registers.flags.f.half_carry = false;
+    return 4;
   }
 };
 
@@ -388,7 +508,7 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     u8 value = cpu.Fetch8();
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::BC, false, value, 12);
   } else if (opcode == 0x02) { // LD [BC], A
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::BC, true, ArithmeticTarget::A, false, 8);
+    return std::make_unique<InstructionLoad>(ArithmeticTarget::BC, LoadOperandType::AS_ADDRESS, ArithmeticTarget::A, LoadOperandType::REGISTER, 8);
   } else if (opcode == 0x03) { // INC BC
     return std::make_unique<InstructionInc>(ArithmeticTarget::BC, 8);
   } else if (opcode == 0x04) { // INC B
@@ -406,7 +526,7 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
   } else if (opcode == 0x09) { // ADD HL, BC
     return std::make_unique<InstructionAdd>(ArithmeticTarget::HL, ArithmeticTarget::BC, false, 8);
   } else if (opcode == 0x0A) { // LD A, BC
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, false, ArithmeticTarget::BC, true, 8);
+    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::BC, LoadOperandType::AS_ADDRESS, 8);
   } else if (opcode == 0x0B) { // DEC BC
     return std::make_unique<InstructionDec>(ArithmeticTarget::BC, 8);
   } else if (opcode == 0x0C) { // INC C
@@ -425,7 +545,7 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     u16 value = cpu.Fetch16();
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::DE, false, value, 12);
   } else if (opcode == 0x12) { // LD [DE], a
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::DE, true, ArithmeticTarget::A, false, 8);
+    return std::make_unique<InstructionLoad>(ArithmeticTarget::DE, LoadOperandType::AS_ADDRESS, ArithmeticTarget::A, LoadOperandType::REGISTER, 8);
   } else if (opcode == 0x13) { // INC DE
     return std::make_unique<InstructionInc>(ArithmeticTarget::DE, 8);
   } else if (opcode == 0x14) { // INC D
@@ -437,17 +557,98 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::D, false, value, 8);
   } else if (opcode == 0x17) { // RLA
     return std::make_unique<InstructionRotateLeft>();
-  } else if (opcode == 0x18) { // JP e8
+  } else if (opcode == 0x18) { // JR e8
     s8 value = as_signed(cpu.Fetch8());
-    return std::make_unique<InstructionJump>(value);
+    return std::make_unique<InstructionJumpRelative>(value);
   } else if (opcode == 0x19) { // ADD HL, DE
     return std::make_unique<InstructionAdd>(ArithmeticTarget::HL, ArithmeticTarget::DE, false, 8);
   } else if (opcode == 0x1A) { // LD A, [DE]
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, false, ArithmeticTarget::DE, true, 8);
+    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::DE, LoadOperandType::AS_ADDRESS, 8);
   } else if (opcode == 0x1B) { // DEC DE
     return std::make_unique<InstructionDec>(ArithmeticTarget::DE, 8);
   } else if (opcode == 0x1C) { // INC E
-    return std::make_unique<InstructionInc>(ArithmeticTarget::E, 8);
+    return std::make_unique<InstructionInc>(ArithmeticTarget::E, 4);
+  } else if (opcode == 0x1D) { // DEC E
+    return std::make_unique<InstructionDec>(ArithmeticTarget::E, 4);
+  } else if (opcode == 0x1E) { // LD E, n8
+    u8 value = cpu.Fetch8();
+    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::E, false, value, 8);
+  } else if (opcode == 0x1F) { // RRA
+    return std::make_unique<InstructionRotateRight>();
+  } else if (opcode == 0x20) { // JR NZ, e8
+    s8 value = as_signed(cpu.Fetch8());
+    return std::make_unique<InstructionJumpRelativeIfZero>(value, true);
+  } else if (opcode == 0x21) { // LD HL, n16
+    u16 value = cpu.Fetch16();
+    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::HL, false, value, 12);
+  } else if (opcode == 0x22) { // LD [HL+], A
+    return std::make_unique<InstructionLoad>(ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS_INC, ArithmeticTarget::A, LoadOperandType::REGISTER, 8);
+  } else if (opcode == 0x23) { // INC HL
+    return std::make_unique<InstructionInc>(ArithmeticTarget::HL, 8);
+  } else if (opcode == 0x24) { // INC H
+    return std::make_unique<InstructionInc>(ArithmeticTarget::H, 4);
+  } else if (opcode == 0x25) { // DEC H
+    return std::make_unique<InstructionDec>(ArithmeticTarget::H, 4);
+  } else if (opcode == 0x26) { // LD H, n8
+    u8 value = cpu.Fetch8();
+    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::H, false, value, 8);
+  } else if (opcode == 0x27) { // DAA
+    return std::make_unique<InstructionDAA>();
+  } else if (opcode == 0x28) { // JR Z, e8
+    s8 value = as_signed(cpu.Fetch8());
+    return std::make_unique<InstructionJumpRelativeIfZero>(value, false);
+  } else if (opcode == 0x29) { // ADD HL, HL
+    return std::make_unique<InstructionAdd>(ArithmeticTarget::HL, ArithmeticTarget::HL, false, 8);
+  } else if (opcode == 0x2A) { // LD A, [HL+]
+    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::DE, LoadOperandType::AS_ADDRESS_INC, 8);
+  } else if (opcode == 0x2B) { // DEC HL
+    return std::make_unique<InstructionDec>(ArithmeticTarget::HL, 8);
+  } else if (opcode == 0x2C) { // INC L
+    return std::make_unique<InstructionInc>(ArithmeticTarget::L, 4);
+  } else if (opcode == 0x2D) { // DEC L
+    return std::make_unique<InstructionDec>(ArithmeticTarget::L, 4);
+  } else if (opcode == 0x2E) { // LD L, n8
+    u8 value = cpu.Fetch8();
+    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::L, false, value, 8);
+  } else if (opcode == 0x2F) { // CPL
+    return std::make_unique<InstructionComplement>();
+  } else if (opcode == 0x30) { // JR NC, e8
+    s8 value = as_signed(cpu.Fetch8());
+    return std::make_unique<InstructionJumpRelativeIfCarry>(value, true);
+  } else if (opcode == 0x31) { // LD SP, n16
+    u16 value = cpu.Fetch16();
+    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::SP, false, value, 12);
+  } else if (opcode == 0x32) { // LD [HL-], A
+    return std::make_unique<InstructionLoad>(ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS_DEC, ArithmeticTarget::A, LoadOperandType::REGISTER, 8);
+  } else if (opcode == 0x33) { // INC SP
+    return std::make_unique<InstructionInc>(ArithmeticTarget::SP, 8);
+  } else if (opcode == 0x34) { // INC [HL]
+    return std::make_unique<InstructionInc>(ArithmeticTarget::HL, IncDecOperandType::MEMORY, 12);
+  } else if (opcode == 0x35) { // DEC [HL]
+    return std::make_unique<InstructionDec>(ArithmeticTarget::HL, IncDecOperandType::MEMORY, 12);
+  } else if (opcode == 0x36) { // LD [HL], n8
+    u8 value = cpu.Fetch8();
+    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::HL, true, value, 12);
+  } else if (opcode == 0x37) { // SCF
+    return std::make_unique<InstructionSetCarryFlag>();
+  } else if (opcode == 0x38) { // JR C, e8
+    s8 value = as_signed(cpu.Fetch8());
+    return std::make_unique<InstructionJumpRelativeIfCarry>(value, false);
+  } else if (opcode == 0x39) { // ADD HL, SP
+    return std::make_unique<InstructionAdd>(ArithmeticTarget::HL, ArithmeticTarget::SP, false, 8);
+  } else if (opcode == 0x3A) { // LD A, [HL-]
+    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::DE, LoadOperandType::AS_ADDRESS_DEC, 8);
+  } else if (opcode == 0x3B) { // DEC SP
+    return std::make_unique<InstructionDec>(ArithmeticTarget::HL, 8);
+  } else if (opcode == 0x3C) { // INC A
+    return std::make_unique<InstructionInc>(ArithmeticTarget::A, 4);
+  } else if (opcode == 0x3D) { // DEC A
+    return std::make_unique<InstructionDec>(ArithmeticTarget::A, 4);
+  } else if (opcode == 0x3E) { // LD A, n8
+    u8 value = cpu.Fetch8();
+    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::A, false, value, 8);
+  } else if (opcode == 0x3F) { // CCF
+    return std::make_unique<InstructionComplementCarryFlag>();
   }
   return nullptr;
 }

@@ -2,7 +2,8 @@
 
 #include <limits>
 #include <iostream>
-#include <assert.h>
+#include <cassert>
+#include <bitset>
 
 using u8 = uint8_t;
 using s8 = int8_t;
