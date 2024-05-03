@@ -1,8 +1,8 @@
 #pragma once
 
-#include "register.h"
-#include "memory.h"
 #include "cpu.h"
+#include "memory.h"
+#include "register.h"
 
 enum class InstructionType {
   NOP,
@@ -10,7 +10,6 @@ enum class InstructionType {
   ADC,
   SUB,
   SBC,
-  ADND,
   XOR,
   OR,
   RET,
@@ -22,6 +21,8 @@ enum class InstructionType {
   RLA,
   RRA,
   LD,
+  LDH,
+  CP,
 
   POP,
   PUSH,
@@ -30,6 +31,7 @@ enum class InstructionType {
   CPL,
   CCF,
   SCF,
+  AND,
 
   RLCA,
   RRCA,
@@ -37,6 +39,8 @@ enum class InstructionType {
   HALT,
   STOP,
   DAA,
+  DI,
+  EI,
 
   // extended instruction set
   RLC,
@@ -53,20 +57,16 @@ enum class InstructionType {
   SET
 };
 
-
 struct Instruction {
   InstructionType type_;
 
   Instruction(InstructionType type) : type_(type) {}
 
   virtual int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) = 0;
-
 };
 
 struct InstructionNoOp : Instruction {
-  InstructionNoOp() : Instruction(InstructionType::NOP) {
-
-  }
+  InstructionNoOp() : Instruction(InstructionType::NOP) {}
 
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     return 4;
@@ -74,10 +74,10 @@ struct InstructionNoOp : Instruction {
 };
 
 enum class LoadOperandType {
-  REGISTER, // R
-  AS_ADDRESS, // [R]
-  AS_ADDRESS_INC, // [R+]
-  AS_ADDRESS_DEC // [R-]
+  REGISTER,        // R
+  AS_ADDRESS,      // [R]
+  AS_ADDRESS_INC,  // [R+]
+  AS_ADDRESS_DEC   // [R-]
 };
 
 struct InstructionLoad : Instruction {
@@ -88,13 +88,16 @@ struct InstructionLoad : Instruction {
 
   int cycles_;
 
-  InstructionLoad(ArithmeticTarget to, ArithmeticTarget from, LoadOperandType from_type, int cycles)
-      : Instruction(InstructionType::LD), to_(to), to_type_(LoadOperandType::REGISTER), from_(from), from_type_(LoadOperandType::REGISTER), cycles_(cycles) { }
+  InstructionLoad(ArithmeticTarget to, ArithmeticTarget from, int cycles)
+      : Instruction(InstructionType::LD), to_(to), to_type_(LoadOperandType::REGISTER), from_(from), from_type_(LoadOperandType::REGISTER), cycles_(cycles) {}
+
+  InstructionLoad(ArithmeticTarget to, LoadOperandType to_type, ArithmeticTarget from, int cycles)
+      : Instruction(InstructionType::LD), to_(to), to_type_(to_type), from_(from), from_type_(LoadOperandType::REGISTER), cycles_(cycles) {}
 
   InstructionLoad(ArithmeticTarget to, LoadOperandType to_type, ArithmeticTarget from, LoadOperandType from_type, int cycles)
-    : Instruction(InstructionType::LD), to_(to), to_type_(to_type), from_(from), from_type_(from_type), cycles_(cycles) { }
+      : Instruction(InstructionType::LD), to_(to), to_type_(to_type), from_(from), from_type_(from_type), cycles_(cycles) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     u16 r = registers.Get(from_);
     u16 value;
     if (from_type_ == LoadOperandType::AS_ADDRESS || from_type_ == LoadOperandType::AS_ADDRESS_INC || from_type_ == LoadOperandType::AS_ADDRESS_DEC) {
@@ -125,6 +128,53 @@ struct InstructionLoad : Instruction {
   }
 };
 
+struct InstructionLoadHLSPImmediate : Instruction {
+  s8 value_;
+
+  InstructionLoadHLSPImmediate(s8 value)
+      : Instruction(InstructionType::LD), value_(value) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 sp = registers.Get(ArithmeticTarget::SP);
+    u16 result = sp + value_;
+    registers.flags.v = 0;
+    registers.flags.f.half_carry = ((sp ^ value_ ^ result) & 0x10) == 0x10;
+    registers.flags.f.carry = ((sp ^ value_ ^ result) & 0x100) == 0x100;
+    registers.Set(ArithmeticTarget::HL, result);
+    return 12;
+  }
+};
+
+struct InstructionLDH1 : Instruction {
+  u8 offset_;
+  ArithmeticTarget from_;
+
+  InstructionLDH1(u8 offset, ArithmeticTarget from)
+      : Instruction(InstructionType::LDH), offset_(offset), from_(from) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    assert(!is_16bit_register(from_));
+    u8 value = registers.Get(from_);
+    bus.Write8(0xFF00 + offset_, value);
+    return 12;
+  }
+};
+
+struct InstructionLDH2 : Instruction {
+  ArithmeticTarget to_;
+  u8 offset_;
+
+  InstructionLDH2(ArithmeticTarget to, u8 offset)
+      : Instruction(InstructionType::LDH), offset_(offset), to_(to) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    assert(!is_16bit_register(to_));
+    u8 value = registers.Get(to_);
+    registers.Set(to_, bus.Read8(0xFF + offset_));
+    return 12;
+  }
+};
+
 struct InstructionLoadImmediate : Instruction {
   ArithmeticTarget to_;
   bool to_memory_;
@@ -134,12 +184,12 @@ struct InstructionLoadImmediate : Instruction {
   int cycles_;
 
   InstructionLoadImmediate(ArithmeticTarget result, bool to_memory, u8 value, int cycles)
-      : Instruction(InstructionType::LD), to_(result), to_memory_(to_memory), is_16bit(false), value_(value), cycles_(cycles) { }
+      : Instruction(InstructionType::LD), to_(result), to_memory_(to_memory), is_16bit(false), value_(value), cycles_(cycles) {}
 
   InstructionLoadImmediate(ArithmeticTarget result, bool to_memory, u16 value, int cycles)
-      : Instruction(InstructionType::LD), to_(result), to_memory_(to_memory), is_16bit(true), value_(value), cycles_(cycles) { }
+      : Instruction(InstructionType::LD), to_(result), to_memory_(to_memory), is_16bit(true), value_(value), cycles_(cycles) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     if (to_memory_) {
       if (is_16bit) {
         bus.Write16(registers.Get(to_), value_);
@@ -153,6 +203,22 @@ struct InstructionLoadImmediate : Instruction {
   }
 };
 
+struct InstructionLoadImmediateAddress : Instruction {
+  ArithmeticTarget to_;
+  u16 value_;
+
+  int cycles_;
+
+  InstructionLoadImmediateAddress(ArithmeticTarget result, u16 value, int cycles)
+      : Instruction(InstructionType::LD), to_(result), value_(value), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 value = bus.Read8(value_);
+    registers.Set(to_, value);
+    return cycles_;
+  }
+};
+
 struct InstructionLoadToAddress : Instruction {
   u16 value_;
   ArithmeticTarget from_;
@@ -162,12 +228,12 @@ struct InstructionLoadToAddress : Instruction {
   int cycles_;
 
   InstructionLoadToAddress(u16 value, ArithmeticTarget from, bool from_memory, int cycles)
-      : Instruction(InstructionType::LD), value_(value), is_16bit_(true), from_(from), from_memory_(from_memory), cycles_(cycles) { }
+      : Instruction(InstructionType::LD), value_(value), is_16bit_(true), from_(from), from_memory_(from_memory), cycles_(cycles) {}
 
   InstructionLoadToAddress(u8 value, ArithmeticTarget from, bool from_memory, int cycles)
-      : Instruction(InstructionType::LD), value_(value), is_16bit_(false), from_(from), from_memory_(from_memory), cycles_(cycles) { }
+      : Instruction(InstructionType::LD), value_(value), is_16bit_(false), from_(from), from_memory_(from_memory), cycles_(cycles) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     if (from_memory_) {
       if (is_16bit_) {
         bus.Write16(value_, bus.Read16(registers.Get(from_)));
@@ -187,24 +253,35 @@ struct InstructionLoadToAddress : Instruction {
 
 struct InstructionRotateLeftCircular : Instruction {
   ArithmeticTarget to_;
+  bool to_memory_;
   bool set_zero_;
 
   int cycles_;
 
-  InstructionRotateLeftCircular()
-      : Instruction(InstructionType::RLCA), to_(ArithmeticTarget::A), set_zero_(true), cycles_(4) { }
+  InstructionRotateLeftCircular() : Instruction(InstructionType::RLCA), to_(ArithmeticTarget::A), set_zero_(true), to_memory_(false), cycles_(4) {}
 
-  InstructionRotateLeftCircular(ArithmeticTarget to, int cycles)
-      : Instruction(InstructionType::RLC), to_(to), set_zero_(true), cycles_(cycles) { }
+  InstructionRotateLeftCircular(ArithmeticTarget to, int cycles) : Instruction(InstructionType::RLC), to_(to), set_zero_(true), to_memory_(false), cycles_(cycles) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
-    u8 a = registers.Get(to_);
-    bool carry = a & 0x80;
-    a = (a << 1) & 0xFF;
+  InstructionRotateLeftCircular(ArithmeticTarget to, bool to_memory, int cycles) : Instruction(InstructionType::RLC), to_(to), set_zero_(true), to_memory_(to_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 r = registers.Get(to_);
+    u8 value;
+    if (to_memory_) {
+      value = bus.Read8(r);
+    } else {
+      value = r;
+    }
+    bool carry = value & 0b1000'0000;
+    value = (value << 1) & 0x1111'1111;
     registers.flags.f.carry = carry;
-    a = a | carry;
-    registers.Set(to_, a);
-    registers.flags.f.zero = set_zero_ && a == 0;
+    value = value | carry;
+    if (to_memory_) {
+      bus.Write8(r, value);
+    } else {
+      registers.Set(to_, value);
+    }
+    registers.flags.f.zero = set_zero_ && value == 0;
     registers.flags.f.half_carry = false;
     registers.flags.f.subtract = false;
     return cycles_;
@@ -213,24 +290,35 @@ struct InstructionRotateLeftCircular : Instruction {
 
 struct InstructionRotateRightCircular : Instruction {
   ArithmeticTarget to_;
+  bool to_memory_;
   bool set_zero_;
 
   int cycles_;
 
-  InstructionRotateRightCircular()
-      : Instruction(InstructionType::RRCA), to_(ArithmeticTarget::A), set_zero_(false), cycles_(4) { }
+  InstructionRotateRightCircular() : Instruction(InstructionType::RRCA), to_(ArithmeticTarget::A), set_zero_(true), to_memory_(false), cycles_(4) {}
 
-  InstructionRotateRightCircular(ArithmeticTarget to, int cycles)
-      : Instruction(InstructionType::RRC), to_(to), set_zero_(true), cycles_(cycles) { }
+  InstructionRotateRightCircular(ArithmeticTarget to, int cycles) : Instruction(InstructionType::RRC), to_(to), set_zero_(true), to_memory_(false), cycles_(cycles) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
-    u8 a = registers.Get(to_);
-    bool carry = a & 0b000'0001;
-    a = (a >> 1) & 0b0111'1111;
+  InstructionRotateRightCircular(ArithmeticTarget to, bool to_memory, int cycles) : Instruction(InstructionType::RRC), to_(to), set_zero_(true), to_memory_(to_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 r = registers.Get(to_);
+    u8 value;
+    if (to_memory_) {
+      value = bus.Read8(r);
+    } else {
+      value = r;
+    }
+    bool carry = value & 0b000'0001;
+    value = (value >> 1) & 0b0111'1111;
     registers.flags.f.carry = carry;
-    a = a | (carry << 7);
-    registers.Set(to_, a);
-    registers.flags.f.zero = set_zero_ && a == 0;
+    value = value | (carry << 7);
+    if (to_memory_) {
+      bus.Write8(r, value);
+    } else {
+      registers.Set(to_, value);
+    }
+    registers.flags.f.zero = set_zero_ && value == 0;
     registers.flags.f.half_carry = false;
     registers.flags.f.subtract = false;
     return cycles_;
@@ -239,23 +327,34 @@ struct InstructionRotateRightCircular : Instruction {
 
 struct InstructionRotateLeft : Instruction {
   ArithmeticTarget to_;
+  bool to_memory_;
   bool set_zero_;
 
   int cycles_;
 
-  InstructionRotateLeft()
-      : Instruction(InstructionType::RLA), to_(ArithmeticTarget::A), set_zero_(true), cycles_(4) { }
+  InstructionRotateLeft() : Instruction(InstructionType::RLA), to_(ArithmeticTarget::A), set_zero_(false), to_memory_(false), cycles_(4) {}
 
-  InstructionRotateLeft(ArithmeticTarget to, int cycles)
-      : Instruction(InstructionType::RL), to_(to), set_zero_(true), cycles_(cycles) { }
+  InstructionRotateLeft(ArithmeticTarget to, int cycles) : Instruction(InstructionType::RL), to_(to), set_zero_(true), to_memory_(false), cycles_(cycles) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
-    u8 a = registers.Get(to_);
-    bool carry = a & 0b1000'0000;
-    a = (a << 1) & 0b1111'1111;
+  InstructionRotateLeft(ArithmeticTarget to, bool to_memory, int cycles) : Instruction(InstructionType::RL), to_(to), set_zero_(true), to_memory_(to_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 r = registers.Get(to_);
+    u8 value;
+    if (to_memory_) {
+      value = bus.Read8(r);
+    } else {
+      value = r;
+    }
+    bool carry = value & 0b1000'0000;
+    value = (value << 1) & 0b1111'1111;
     registers.flags.f.carry = carry;
-    registers.Set(to_, a);
-    registers.flags.f.zero = set_zero_ && a == 0;
+    if (to_memory_) {
+      bus.Write8(r, value);
+    } else {
+      registers.Set(to_, value);
+    }
+    registers.flags.f.zero = set_zero_ && value == 0;
     registers.flags.f.half_carry = false;
     registers.flags.f.subtract = false;
     return cycles_;
@@ -264,65 +363,291 @@ struct InstructionRotateLeft : Instruction {
 
 struct InstructionRotateRight : Instruction {
   ArithmeticTarget to_;
+  bool to_memory_;
   bool set_zero_;
 
   int cycles_;
 
-  InstructionRotateRight()
-      : Instruction(InstructionType::RRA), to_(ArithmeticTarget::A), set_zero_(true), cycles_(4) { }
+  InstructionRotateRight() : Instruction(InstructionType::RRA), to_(ArithmeticTarget::A), set_zero_(true), to_memory_(false), cycles_(4) {}
 
-  InstructionRotateRight(ArithmeticTarget to, int cycles)
-      : Instruction(InstructionType::RR), to_(to), set_zero_(true), cycles_(cycles) { }
+  InstructionRotateRight(ArithmeticTarget to, int cycles) : Instruction(InstructionType::RR), to_(to), set_zero_(true), to_memory_(false), cycles_(cycles) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
-    u8 a = registers.Get(to_);
-    bool carry = a & 0b0000'0001;
-    a = (a >> 1) & 0b0111'1111;
+  InstructionRotateRight(ArithmeticTarget to, bool to_memory, int cycles) : Instruction(InstructionType::RR), to_(to), set_zero_(true), to_memory_(to_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 r = registers.Get(to_);
+    u8 value;
+    if (to_memory_) {
+      value = bus.Read8(r);
+    } else {
+      value = r;
+    }
+    bool carry = value & 0b0000'0001;
+    value = (value >> 1) & 0b0111'1111;
     registers.flags.f.carry = carry;
-    registers.Set(to_, a);
-    registers.flags.f.zero = set_zero_ && a == 0;
+    if (to_memory_) {
+      bus.Write8(r, value);
+    } else {
+      registers.Set(to_, value);
+    }
+    registers.flags.f.zero = set_zero_ && value == 0;
     registers.flags.f.half_carry = false;
     registers.flags.f.subtract = false;
     return cycles_;
   }
 };
 
-struct InstructionStop : Instruction {
-  InstructionStop() : Instruction(InstructionType::STOP) { }
+struct InstructionShiftLeftArithmetic : Instruction {
+  ArithmeticTarget to_;
+  bool to_memory_;
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int cycles_;
+
+  InstructionShiftLeftArithmetic(ArithmeticTarget to, int cycles) : Instruction(InstructionType::SLA), to_(to), to_memory_(false), cycles_(cycles) {}
+
+  InstructionShiftLeftArithmetic(ArithmeticTarget to, bool to_memory, int cycles) : Instruction(InstructionType::SLA), to_(to), to_memory_(to_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 r = registers.Get(to_);
+    u8 value;
+    if (to_memory_) {
+      value = bus.Read8(r);
+    } else {
+      value = r;
+    }
+    bool msb = value & 0b1000'0000;
+    value <<= 1;
+    registers.flags.f.carry = msb;
+    registers.flags.f.zero = value == 0;
+    registers.flags.f.half_carry = false;
+    registers.flags.f.subtract = false;
+    if (to_memory_) {
+      bus.Write8(r, value);
+    } else {
+      registers.Set(to_, value);
+    }
+    return cycles_;
+  }
+};
+
+struct InstructionShiftRightArithmetic : Instruction {
+  ArithmeticTarget to_;
+  bool to_memory_;
+
+  int cycles_;
+
+  InstructionShiftRightArithmetic(ArithmeticTarget to, int cycles) : Instruction(InstructionType::SRA), to_(to), to_memory_(false), cycles_(cycles) {}
+
+  InstructionShiftRightArithmetic(ArithmeticTarget to, bool to_memory, int cycles) : Instruction(InstructionType::SRA), to_(to), to_memory_(to_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 r = registers.Get(to_);
+    u8 value;
+    if (to_memory_) {
+      value = bus.Read8(r);
+    } else {
+      value = r;
+    }
+    bool lsb = value & 0b0000'0001;
+    u8 msb = value & 0b1000'0000;
+    value >>= 1;
+    value |= msb;
+    registers.flags.f.carry = lsb;
+    registers.flags.f.zero = value == 0;
+    registers.flags.f.half_carry = false;
+    registers.flags.f.subtract = false;
+    if (to_memory_) {
+      bus.Write8(r, value);
+    } else {
+      registers.Set(to_, value);
+    }
+    return cycles_;
+  }
+};
+
+struct InstructionShiftRightLogical : Instruction {
+  ArithmeticTarget to_;
+  bool to_memory_;
+
+  int cycles_;
+
+  InstructionShiftRightLogical(ArithmeticTarget to, int cycles) : Instruction(InstructionType::SRL), to_(to), to_memory_(false), cycles_(cycles) {}
+
+  InstructionShiftRightLogical(ArithmeticTarget to, bool to_memory, int cycles) : Instruction(InstructionType::SRL), to_(to), to_memory_(to_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 r = registers.Get(to_);
+    u8 value;
+    if (to_memory_) {
+      value = bus.Read8(r);
+    } else {
+      value = r;
+    }
+    bool lsb = value & 0b0000'0001;
+    value >>= 1;
+    registers.flags.f.carry = lsb;
+    registers.flags.f.zero = value == 0;
+    registers.flags.f.half_carry = false;
+    registers.flags.f.subtract = false;
+    if (to_memory_) {
+      bus.Write8(r, value);
+    } else {
+      registers.Set(to_, value);
+    }
+    return cycles_;
+  }
+};
+
+struct InstructionSwap : Instruction {
+  ArithmeticTarget to_;
+  bool to_memory_;
+
+  int cycles_;
+
+  InstructionSwap(ArithmeticTarget to, int cycles) : Instruction(InstructionType::SWAP), to_(to), to_memory_(false), cycles_(cycles) {}
+
+  InstructionSwap(ArithmeticTarget to, bool to_memory, int cycles) : Instruction(InstructionType::SWAP), to_(to), to_memory_(to_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 r = registers.Get(to_);
+    u8 value;
+    if (to_memory_) {
+      value = bus.Read8(r);
+    } else {
+      value = r;
+    }
+    u8 upper = value >> 4;
+    u8 lower = value & 0x0F;
+    value = (lower << 4) | upper;
+    registers.flags.f.zero = value == 0;
+    registers.flags.f.carry = false;
+    registers.flags.f.half_carry = false;
+    registers.flags.f.subtract = false;
+    if (to_memory_) {
+      bus.Write8(r, value);
+    } else {
+      registers.Set(to_, value);
+    }
+    return cycles_;
+  }
+};
+
+struct InstructionBit : Instruction {
+  ArithmeticTarget to_;
+  bool to_memory_;
+  u8 bit_;
+
+  int cycles_;
+
+  InstructionBit(u8 bit, ArithmeticTarget to, int cycles) : Instruction(InstructionType::BIT), bit_(bit), to_(to), to_memory_(false), cycles_(cycles) {}
+
+  InstructionBit(u8 bit, ArithmeticTarget to, bool to_memory, int cycles) : Instruction(InstructionType::BIT), bit_(bit), to_(to), to_memory_(to_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 r = registers.Get(to_);
+    u8 value;
+    if (to_memory_) {
+      value = bus.Read8(r);
+    } else {
+      value = r;
+    }
+    registers.flags.f.zero = (value & (1 << bit_)) == 0;
+    registers.flags.f.half_carry = true;
+    registers.flags.f.subtract = false;
+    return cycles_;
+  }
+};
+
+struct InstructionSet : Instruction {
+  ArithmeticTarget to_;
+  bool to_memory_;
+  u8 bit_;
+  
+  int cycles_;
+
+  InstructionSet(u8 bit, ArithmeticTarget to, int cycles) : Instruction(InstructionType::SET), bit_(bit), to_(to), to_memory_(false), cycles_(cycles) {}
+
+  InstructionSet(u8 bit, ArithmeticTarget to, bool to_memory, int cycles) : Instruction(InstructionType::SET), bit_(bit), to_(to), to_memory_(to_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 r = registers.Get(to_);
+    u8 value;
+    if (to_memory_) {
+      value = bus.Read8(r);
+    } else {
+      value = r;
+    }
+    value |= (1 << bit_);
+    if (to_memory_) {
+      bus.Write8(r, value);
+    } else {
+      registers.Set(to_, value);
+    }
+    return cycles_;
+  }
+};
+
+struct InstructionRes : Instruction {
+  ArithmeticTarget to_;
+  bool to_memory_;
+  u8 bit_;
+  
+  int cycles_;
+  
+  InstructionRes(u8 bit, ArithmeticTarget to, int cycles) : Instruction(InstructionType::RES), bit_(bit), to_(to), to_memory_(false), cycles_(cycles) {}
+
+  InstructionRes(u8 bit, ArithmeticTarget to, bool to_memory, int cycles) : Instruction(InstructionType::RES), bit_(bit), to_(to), to_memory_(to_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u8 r = registers.Get(to_);
+    u8 value;
+    if (to_memory_) {
+      value = bus.Read8(r);
+    } else {
+      value = r;
+    }
+    value &= ~(1 << bit_);
+    if (to_memory_) {
+      bus.Write8(r, value);
+    } else {
+      registers.Set(to_, value);
+    }
+    return cycles_;
+  }
+};
+
+struct InstructionStop : Instruction {
+  InstructionStop() : Instruction(InstructionType::STOP) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    cpu.Stop();
     return 4;
   }
 };
 
-enum class IncDecOperandType {
-  REGISTER,
-  MEMORY
-};
+enum class IncDecOperandType { REGISTER, MEMORY };
 
 struct InstructionInc : Instruction {
   ArithmeticTarget to_;
   IncDecOperandType to_type_;
   int cycles_;
 
-  InstructionInc(ArithmeticTarget to, int cycles)
-      : Instruction(InstructionType::INC), to_(to), to_type_(IncDecOperandType::REGISTER), cycles_(cycles) { }
+  InstructionInc(ArithmeticTarget to, int cycles) : Instruction(InstructionType::INC), to_(to), to_type_(IncDecOperandType::REGISTER), cycles_(cycles) {}
 
-  InstructionInc(ArithmeticTarget to, IncDecOperandType to_type, int cycles)
-      : Instruction(InstructionType::INC), to_(to), to_type_(to_type), cycles_(cycles) { }
+  InstructionInc(ArithmeticTarget to, IncDecOperandType to_type, int cycles) : Instruction(InstructionType::INC), to_(to), to_type_(to_type), cycles_(cycles) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     if (to_type_ == IncDecOperandType::REGISTER) {
       if (is_16bit_register(to_)) {
-        u16 result = cpu.Inc16(registers.Get(to_));
+        u16 result = cpu.IncWord(registers.Get(to_));
         registers.Set(to_, result);
       } else {
-        u8 result = cpu.Inc8((u8) registers.Get(to_));
+        u8 result = cpu.Inc((u8)registers.Get(to_));
         registers.Set(to_, result);
       }
     } else {
       u16 address = registers.Get(to_);
-      u8 result = cpu.Inc8(bus.memory_[address]);
+      u8 result = cpu.Inc(bus.Read8(address));
       bus.Write8(address, result);
     }
     return cycles_;
@@ -334,24 +659,22 @@ struct InstructionDec : Instruction {
   IncDecOperandType to_type_;
   int cycles_;
 
-  InstructionDec(ArithmeticTarget to, int cycles)
-      : Instruction(InstructionType::DEC), to_(to), cycles_(cycles) { }
+  InstructionDec(ArithmeticTarget to, int cycles) : Instruction(InstructionType::DEC), to_(to), cycles_(cycles) {}
 
-  InstructionDec(ArithmeticTarget to, IncDecOperandType to_type, int cycles)
-      : Instruction(InstructionType::DEC), to_(to), to_type_(to_type), cycles_(cycles) { }
+  InstructionDec(ArithmeticTarget to, IncDecOperandType to_type, int cycles) : Instruction(InstructionType::DEC), to_(to), to_type_(to_type), cycles_(cycles) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     if (to_type_ == IncDecOperandType::REGISTER) {
       if (is_16bit_register(to_)) {
-        u16 result = cpu.Dec16(registers.Get(to_));
+        u16 result = cpu.DecWord(registers.Get(to_));
         registers.Set(to_, result);
       } else {
-        u8 result = cpu.Dec8((u8) registers.Get(to_));
+        u8 result = cpu.Dec((u8)registers.Get(to_));
         registers.Set(to_, result);
       }
     } else {
       u16 address = registers.Get(to_);
-      u8 result = cpu.Dec8(bus.memory_[address]);
+      u8 result = cpu.Dec(bus.Read8(address));
       bus.Write8(address, result);
     }
     return cycles_;
@@ -365,10 +688,335 @@ struct InstructionAdd : Instruction {
 
   int cycles_;
 
-  InstructionAdd(ArithmeticTarget to, ArithmeticTarget from, bool from_memory, int cycles)
-      : Instruction(InstructionType::ADD), to_(to), from_(from), from_memory_(from_memory), cycles_(cycles) { }
+  InstructionAdd(ArithmeticTarget to, ArithmeticTarget from, bool from_memory, int cycles) : Instruction(InstructionType::ADD), to_(to), from_(from), from_memory_(from_memory), cycles_(cycles) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 value;
+    if (from_memory_) {
+      value = bus.Read8(registers.Get(from_));
+    } else {
+      value = registers.Get(from_);
+    }
+    if (is_16bit_register(to_)) {
+      u16 result = cpu.AddWord(registers.Get(to_), value);
+      registers.Set(to_, result);
+    } else {
+      u8 result = cpu.Add(registers.Get(to_), value);
+      registers.Set(to_, result);
+    }
+    return cycles_;
+  }
+};
+
+struct InstructionAddImmediate : Instruction {
+  ArithmeticTarget to_;
+  u8 value_;
+
+  int cycles_;
+
+  InstructionAddImmediate(ArithmeticTarget to, u8 value, int cycles) : Instruction(InstructionType::ADD), to_(to), value_(value), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    assert(!is_16bit_register(to_));
+    u8 result = cpu.Add(registers.Get(to_), value_);
+    registers.Set(to_, result);
+    return cycles_;
+  }
+};
+
+struct InstructionAddSPImmediate : Instruction {
+  s8 value_;
+
+  InstructionAddSPImmediate(s8 value) : Instruction(InstructionType::ADD), value_(value) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 r = registers.Get(ArithmeticTarget::SP);
+    u16 result = cpu.AddWord(r, (u16)value_);
+    registers.flags.f.zero = false;
+    registers.flags.f.subtract = false;
+    registers.flags.f.half_carry = ((r ^ value_ ^ result) & 0x10) == 0x10;
+    registers.flags.f.carry = ((r ^ value_ ^ result) & 0x100) == 0x100;
+    registers.Set(ArithmeticTarget::SP, result);
+    return 16;
+  }
+};
+struct InstructionRestart : Instruction {
+  u16 value_;
+
+  InstructionRestart(u16 value) : Instruction(InstructionType::RST), value_(value) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    cpu.Push(registers.sp);
+    registers.sp = 0x0000;
+    return 16;
+  }
+};
+
+struct InstructionAddCarry : Instruction {
+  ArithmeticTarget to_;
+  ArithmeticTarget from_;
+  bool from_memory_;
+
+  int cycles_;
+
+  InstructionAddCarry(ArithmeticTarget to, ArithmeticTarget from, bool from_memory, int cycles) : Instruction(InstructionType::ADC), to_(to), from_(from), from_memory_(from_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 value;
+    if (from_memory_) {
+      value = bus.Read8(registers.Get(from_));
+    } else {
+      value = registers.Get(from_);
+    }
+    assert(!is_16bit_register(to_));
+    u8 result = cpu.AddWithCarry(registers.Get(to_), value);
+    registers.Set(to_, result);
+    return cycles_;
+  }
+};
+
+struct InstructionAddCarryImmediate : Instruction {
+  ArithmeticTarget to_;
+  u8 value_;
+
+  int cycles_;
+
+  InstructionAddCarryImmediate(ArithmeticTarget to, u8 value, int cycles) : Instruction(InstructionType::ADC), to_(to), value_(value), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    assert(!is_16bit_register(to_));
+    u8 result = cpu.AddWithCarry(registers.Get(to_), value_);
+    registers.Set(to_, result);
+    return cycles_;
+  }
+};
+struct InstructionSub : Instruction {
+  ArithmeticTarget to_;
+  ArithmeticTarget from_;
+  bool from_memory_;
+
+  int cycles_;
+
+  InstructionSub(ArithmeticTarget to, ArithmeticTarget from, bool from_memory, int cycles) : Instruction(InstructionType::SUB), to_(to), from_(from), from_memory_(from_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 value;
+    if (from_memory_) {
+      value = bus.Read8(registers.Get(from_));
+    } else {
+      value = registers.Get(from_);
+    }
+    if (is_16bit_register(to_)) {
+      u16 result = cpu.SubWord(registers.Get(to_), value);
+      registers.Set(to_, result);
+    } else {
+      u8 result = cpu.Sub(registers.Get(to_), value);
+      registers.Set(to_, result);
+    }
+    return cycles_;
+  }
+};
+
+struct InstructionSubImmediate : Instruction {
+  ArithmeticTarget to_;
+  u8 value_;
+
+  int cycles_;
+
+  InstructionSubImmediate(ArithmeticTarget to, u8 value, int cycles) : Instruction(InstructionType::SUB), to_(to), value_(value), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    assert(!is_16bit_register(to_));
+    u8 result = cpu.Sub(registers.Get(to_), value_);
+    registers.Set(to_, result);
+    return cycles_;
+  }
+};
+
+struct InstructionSubCarry : Instruction {
+  ArithmeticTarget to_;
+  ArithmeticTarget from_;
+  bool from_memory_;
+
+  int cycles_;
+
+  InstructionSubCarry(ArithmeticTarget to, ArithmeticTarget from, bool from_memory, int cycles) : Instruction(InstructionType::SBC), to_(to), from_(from), from_memory_(from_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 value;
+    if (from_memory_) {
+      value = bus.Read8(registers.Get(from_));
+    } else {
+      value = registers.Get(from_);
+    }
+    assert(!is_16bit_register(to_));
+    u8 result = cpu.SubWithCarry(registers.Get(to_), value);
+    registers.Set(to_, result);
+    return cycles_;
+  }
+};
+
+struct InstructionSubCarryImmediate : Instruction {
+  ArithmeticTarget to_;
+  u8 value_;
+
+  int cycles_;
+
+  InstructionSubCarryImmediate(ArithmeticTarget to, u8 value, int cycles) : Instruction(InstructionType::SBC), to_(to), value_(value), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    assert(!is_16bit_register(to_));
+    u8 result = cpu.SubWithCarry(registers.Get(to_), value_);
+    registers.Set(to_, result);
+    return cycles_;
+  }
+};
+
+struct InstructionAnd : Instruction {
+  ArithmeticTarget to_;
+  ArithmeticTarget from_;
+  bool from_memory_;
+
+  int cycles_;
+
+  InstructionAnd(ArithmeticTarget to, ArithmeticTarget from, bool from_memory, int cycles) : Instruction(InstructionType::AND), to_(to), from_(from), from_memory_(from_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 value;
+    if (from_memory_) {
+      value = bus.Read8(registers.Get(from_));
+    } else {
+      value = registers.Get(from_);
+    }
+    u16 result = registers.Get(to_) & value;
+    registers.Set(to_, result);
+    registers.flags.f.zero = result == 0;
+    registers.flags.f.subtract = false;
+    registers.flags.f.half_carry = false;
+    registers.flags.f.carry = false;
+    return cycles_;
+  }
+};
+
+struct InstructionAndImmediate : Instruction {
+  ArithmeticTarget to_;
+  u8 value_;
+
+  int cycles_;
+
+  InstructionAndImmediate(ArithmeticTarget to, u8 value, int cycles) : Instruction(InstructionType::AND), to_(to), value_(value), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 result = registers.Get(to_) & value_;
+    registers.Set(to_, result);
+    registers.flags.f.zero = result == 0;
+    registers.flags.f.subtract = false;
+    registers.flags.f.half_carry = false;
+    registers.flags.f.carry = false;
+    return cycles_;
+  }
+};
+
+struct InstructionXOR : Instruction {
+  ArithmeticTarget to_;
+  ArithmeticTarget from_;
+  bool from_memory_;
+
+  int cycles_;
+
+  InstructionXOR(ArithmeticTarget to, ArithmeticTarget from, bool from_memory, int cycles) : Instruction(InstructionType::XOR), to_(to), from_(from), from_memory_(from_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 value;
+    if (from_memory_) {
+      value = bus.Read8(registers.Get(from_));
+    } else {
+      value = registers.Get(from_);
+    }
+    u16 result = registers.Get(to_) ^ value;
+    registers.Set(to_, result);
+    registers.flags.f.zero = result == 0;
+    registers.flags.f.subtract = false;
+    registers.flags.f.half_carry = false;
+    registers.flags.f.carry = false;
+    return cycles_;
+  }
+};
+
+struct InstructionXORImmediate : Instruction {
+  ArithmeticTarget to_;
+  u8 value_;
+
+  int cycles_;
+
+  InstructionXORImmediate(ArithmeticTarget to, u8 value, int cycles) : Instruction(InstructionType::XOR), to_(to), value_(value), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 result = registers.Get(to_) ^ value_;
+    registers.Set(to_, result);
+    registers.flags.f.zero = result == 0;
+    registers.flags.f.subtract = false;
+    registers.flags.f.half_carry = false;
+    registers.flags.f.carry = false;
+    return cycles_;
+  }
+};
+
+struct InstructionOr : Instruction {
+  ArithmeticTarget to_;
+  ArithmeticTarget from_;
+  bool from_memory_;
+
+  int cycles_;
+
+  InstructionOr(ArithmeticTarget to, ArithmeticTarget from, bool from_memory, int cycles) : Instruction(InstructionType::OR), to_(to), from_(from), from_memory_(from_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 value;
+    if (from_memory_) {
+      value = bus.Read8(registers.Get(from_));
+    } else {
+      value = registers.Get(from_);
+    }
+    u16 result = registers.Get(to_) | value;
+    registers.Set(to_, result);
+    registers.flags.f.zero = result == 0;
+    registers.flags.f.subtract = false;
+    registers.flags.f.half_carry = false;
+    registers.flags.f.carry = false;
+    return cycles_;
+  }
+};
+
+struct InstructionOrImmediate : Instruction {
+  ArithmeticTarget to_;
+  u16 value_;
+
+  int cycles_;
+
+  InstructionOrImmediate(ArithmeticTarget to, u16 value, int cycles) : Instruction(InstructionType::OR), to_(to), value_(value), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 result = registers.Get(to_) | value_;
+    registers.Set(to_, result);
+    registers.flags.f.zero = result == 0;
+    registers.flags.f.subtract = false;
+    registers.flags.f.half_carry = false;
+    registers.flags.f.carry = false;
+    return cycles_;
+  }
+};
+
+struct InstructionCompare : Instruction {
+  ArithmeticTarget to_;
+  ArithmeticTarget from_;
+  bool from_memory_;
+
+  int cycles_;
+
+  InstructionCompare(ArithmeticTarget to, ArithmeticTarget from, bool from_memory, int cycles) : Instruction(InstructionType::CP), to_(to), from_(from), from_memory_(from_memory), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     u8 value;
     if (from_memory_) {
       value = bus.Read8(registers.Get(from_));
@@ -376,13 +1024,32 @@ struct InstructionAdd : Instruction {
       assert(!is_16bit_register(from_));
       value = registers.Get(from_);
     }
-    if (is_16bit_register(to_)) {
-      u16 result = cpu.Add16(registers.Get(to_), value);
-      registers.Set(to_, result);
-    } else {
-      u8 result = cpu.Add8(registers.Get(to_), value);
-      registers.Set(to_, result);
-    }
+    assert(!is_16bit_register(to_));
+    u8 original = registers.Get(to_);
+    u8 result = original - value;
+    registers.flags.f.zero = result == 0;
+    registers.flags.f.subtract = true;
+    registers.flags.f.half_carry = ((original & 0xF) - (value & 0xF)) > 0xF;
+    registers.flags.f.carry = original < value;
+    return cycles_;
+  }
+};
+
+struct InstructionCompareImmediate : Instruction {
+  ArithmeticTarget to_;
+  u8 value_;
+
+  int cycles_;
+
+  InstructionCompareImmediate(ArithmeticTarget to, u8 value, int cycles) : Instruction(InstructionType::CP), to_(to), value_(value), cycles_(cycles) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    assert(!is_16bit_register(to_));
+    u8 original = registers.Get(to_);
+    registers.flags.f.zero = original == value_;
+    registers.flags.f.subtract = true;
+    registers.flags.f.half_carry = (original & 0xF) < (value_ & 0xF);
+    registers.flags.f.carry = original < value_;
     return cycles_;
   }
 };
@@ -390,11 +1057,11 @@ struct InstructionAdd : Instruction {
 struct InstructionJumpRelative : Instruction {
   s8 value_;
 
-  InstructionJumpRelative(s8 value)
-      : Instruction(InstructionType::JR), value_(value) { }
+  InstructionJumpRelative(s8 value) : Instruction(InstructionType::JR), value_(value) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
-    registers.pc += value_;
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    registers.pc += 2;
+    registers.pc = (registers.pc + ((value_ ^ 0x80) - 0x80)) & 0xFFFF;
     return 12;
   }
 };
@@ -403,12 +1070,12 @@ struct InstructionJumpRelativeIfZero : Instruction {
   s8 value_;
   bool is_not_;
 
-  InstructionJumpRelativeIfZero(s8 value, bool is_not)
-      : Instruction(InstructionType::JR), value_(value), is_not_(is_not) { }
+  InstructionJumpRelativeIfZero(s8 value, bool is_not) : Instruction(InstructionType::JR), value_(value), is_not_(is_not) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     if (registers.flags.f.zero != is_not_) {
-      registers.pc += value_;
+      registers.pc += 2;
+      registers.pc = (registers.pc + ((value_ ^ 0x80) - 0x80)) & 0xFFFF;
       return 12;
     }
     return 8;
@@ -419,24 +1086,114 @@ struct InstructionJumpRelativeIfCarry : Instruction {
   s8 value_;
   bool is_not_;
 
-  InstructionJumpRelativeIfCarry(s8 value, bool is_not)
-      : Instruction(InstructionType::JR), value_(value), is_not_(is_not) { }
+  InstructionJumpRelativeIfCarry(s8 value, bool is_not) : Instruction(InstructionType::JR), value_(value), is_not_(is_not) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     if (registers.flags.f.carry != is_not_) {
-      registers.pc += value_;
+      registers.pc += 2;
+      registers.pc = (registers.pc + ((value_ ^ 0x80) - 0x80)) & 0xFFFF;
       return 12;
     }
     return 8;
   }
 };
 
+struct InstructionJump : Instruction {
+  u16 value_;
+
+  InstructionJump(u16 value) : Instruction(InstructionType::JP), value_(value) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    registers.pc = value_;
+    return 16;
+  }
+};
+
+struct InstructionJumpIfZero : Instruction {
+  u16 value_;
+  bool is_not_;
+
+  InstructionJumpIfZero(u16 value, bool is_not) : Instruction(InstructionType::JP), value_(value), is_not_(is_not) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    if (registers.flags.f.zero != is_not_) {
+      registers.pc = value_;
+      return 16;
+    }
+    return 12;
+  }
+};
+
+struct InstructionJumpIfCarry : Instruction {
+  u16 value_;
+  bool is_not_;
+
+  InstructionJumpIfCarry(u16 value, bool is_not) : Instruction(InstructionType::JP), value_(value), is_not_(is_not) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    if (registers.flags.f.carry != is_not_) {
+      registers.pc = value_;
+      return 16;
+    }
+    return 12;
+  }
+};
+
+#define CALL_PC_OFFSET 0
+
+struct InstructionCall : Instruction {
+  u16 value_;
+
+  explicit InstructionCall(u16 value) : Instruction(InstructionType::CALL), value_(value) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    cpu.Push(registers.pc + CALL_PC_OFFSET);
+    registers.pc = value_;
+    std::cout << "call: " << ToHex(value_) << std::endl;
+    return 24;
+  }
+};
+
+struct InstructionCallIfZero : Instruction {
+  u16 value_;
+  bool is_not_;
+
+  InstructionCallIfZero(u16 value, bool is_not) : Instruction(InstructionType::CALL), value_(value), is_not_(is_not) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    if (registers.flags.f.zero != is_not_) {
+      cpu.Push(registers.pc + CALL_PC_OFFSET);
+      registers.pc = value_;
+      std::cout << "call: " << ToHex(value_) << std::endl;
+      return 24;
+    }
+    return 12;
+  }
+};
+
+struct InstructionCallIfCarry : Instruction {
+  u16 value_;
+  bool is_not_;
+
+  InstructionCallIfCarry(u16 value, bool is_not) : Instruction(InstructionType::CALL), value_(value), is_not_(is_not) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    if (registers.flags.f.carry != is_not_) {
+      cpu.Push(registers.pc + CALL_PC_OFFSET);
+      registers.pc = value_;
+      std::cout << "call: " << ToHex(value_) << std::endl;
+      return 24;
+    }
+    return 12;
+  }
+};
+
 // Decimal Adjust Accumulator
 struct InstructionDAA : Instruction {
 
-  InstructionDAA() : Instruction(InstructionType::DAA) { }
+  InstructionDAA() : Instruction(InstructionType::DAA) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     if (!registers.flags.f.subtract) {
       if (registers.flags.f.half_carry || (registers.a & 0xF) > 9) {
         registers.a += 0x06;
@@ -465,9 +1222,9 @@ struct InstructionDAA : Instruction {
 // Logical Not
 struct InstructionComplement : Instruction {
 
-  InstructionComplement() : Instruction(InstructionType::CPL) { }
+  InstructionComplement() : Instruction(InstructionType::CPL) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     registers.a = ~registers.a;
     registers.flags.f.subtract = true;
     registers.flags.f.half_carry = true;
@@ -477,9 +1234,9 @@ struct InstructionComplement : Instruction {
 
 struct InstructionComplementCarryFlag : Instruction {
 
-  InstructionComplementCarryFlag() : Instruction(InstructionType::CCF) { }
+  InstructionComplementCarryFlag() : Instruction(InstructionType::CCF) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     registers.flags.f.carry = !registers.flags.f.carry;
     registers.flags.f.subtract = false;
     registers.flags.f.half_carry = false;
@@ -489,9 +1246,9 @@ struct InstructionComplementCarryFlag : Instruction {
 
 struct InstructionSetCarryFlag : Instruction {
 
-  InstructionSetCarryFlag() : Instruction(InstructionType::SCF) { }
+  InstructionSetCarryFlag() : Instruction(InstructionType::SCF) {}
 
-  int Execute(CPU& cpu, Registers &registers, MemoryBus& bus) override {
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     registers.flags.f.carry = true;
     registers.flags.f.subtract = false;
     registers.flags.f.half_carry = false;
@@ -499,156 +1256,134 @@ struct InstructionSetCarryFlag : Instruction {
   }
 };
 
-std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bus) {
-  u8 opcode = bus.Read8(registers.pc);
-  registers.pc++;
-  if (opcode == 0x00) { // NOP
-    return std::make_unique<InstructionNoOp>();
-  } else if (opcode == 0x01) { // LD BC, n16
-    u8 value = cpu.Fetch8();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::BC, false, value, 12);
-  } else if (opcode == 0x02) { // LD [BC], A
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::BC, LoadOperandType::AS_ADDRESS, ArithmeticTarget::A, LoadOperandType::REGISTER, 8);
-  } else if (opcode == 0x03) { // INC BC
-    return std::make_unique<InstructionInc>(ArithmeticTarget::BC, 8);
-  } else if (opcode == 0x04) { // INC B
-    return std::make_unique<InstructionInc>(ArithmeticTarget::B, 4);
-  } else if (opcode == 0x05) { // DEC B
-    return std::make_unique<InstructionDec>(ArithmeticTarget::B, 4);
-  } else if (opcode == 0x06) { // LD B, n8
-    u8 value = cpu.Fetch8();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::B, false, value, 8);
-  } else if (opcode == 0x07) { // RCLA
-    return std::make_unique<InstructionRotateLeftCircular>();
-  } else if (opcode == 0x08) { // LD [a16], SP
-    u16 value = cpu.Fetch16();
-    return std::make_unique<InstructionLoadToAddress>(value, ArithmeticTarget::SP, false, 20);
-  } else if (opcode == 0x09) { // ADD HL, BC
-    return std::make_unique<InstructionAdd>(ArithmeticTarget::HL, ArithmeticTarget::BC, false, 8);
-  } else if (opcode == 0x0A) { // LD A, BC
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::BC, LoadOperandType::AS_ADDRESS, 8);
-  } else if (opcode == 0x0B) { // DEC BC
-    return std::make_unique<InstructionDec>(ArithmeticTarget::BC, 8);
-  } else if (opcode == 0x0C) { // INC C
-    return std::make_unique<InstructionInc>(ArithmeticTarget::C, 4);
-  } else if (opcode == 0x0D) { // DEC C
-    return std::make_unique<InstructionDec>(ArithmeticTarget::C, 4);
-  } else if (opcode == 0x0E) { // LD C, n8
-    u8 value = cpu.Fetch8();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::C, false, value, 8);
-  } else if (opcode == 0x0F) { // RRCA
-    return std::make_unique<InstructionRotateRightCircular>();
-  } else if (opcode == 0x10) { // STOP
-    cpu.Fetch8();
-    return std::make_unique<InstructionStop>();
-  } else if (opcode == 0x11) { // LD DE, n16
-    u16 value = cpu.Fetch16();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::DE, false, value, 12);
-  } else if (opcode == 0x12) { // LD [DE], a
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::DE, LoadOperandType::AS_ADDRESS, ArithmeticTarget::A, LoadOperandType::REGISTER, 8);
-  } else if (opcode == 0x13) { // INC DE
-    return std::make_unique<InstructionInc>(ArithmeticTarget::DE, 8);
-  } else if (opcode == 0x14) { // INC D
-    return std::make_unique<InstructionInc>(ArithmeticTarget::D, 4);
-  } else if (opcode == 0x15) { // DEC D
-    return std::make_unique<InstructionInc>(ArithmeticTarget::D, 4);
-  } else if (opcode == 0x16) { // LD D, n8
-    u8 value = cpu.Fetch8();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::D, false, value, 8);
-  } else if (opcode == 0x17) { // RLA
-    return std::make_unique<InstructionRotateLeft>();
-  } else if (opcode == 0x18) { // JR e8
-    s8 value = as_signed(cpu.Fetch8());
-    return std::make_unique<InstructionJumpRelative>(value);
-  } else if (opcode == 0x19) { // ADD HL, DE
-    return std::make_unique<InstructionAdd>(ArithmeticTarget::HL, ArithmeticTarget::DE, false, 8);
-  } else if (opcode == 0x1A) { // LD A, [DE]
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::DE, LoadOperandType::AS_ADDRESS, 8);
-  } else if (opcode == 0x1B) { // DEC DE
-    return std::make_unique<InstructionDec>(ArithmeticTarget::DE, 8);
-  } else if (opcode == 0x1C) { // INC E
-    return std::make_unique<InstructionInc>(ArithmeticTarget::E, 4);
-  } else if (opcode == 0x1D) { // DEC E
-    return std::make_unique<InstructionDec>(ArithmeticTarget::E, 4);
-  } else if (opcode == 0x1E) { // LD E, n8
-    u8 value = cpu.Fetch8();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::E, false, value, 8);
-  } else if (opcode == 0x1F) { // RRA
-    return std::make_unique<InstructionRotateRight>();
-  } else if (opcode == 0x20) { // JR NZ, e8
-    s8 value = as_signed(cpu.Fetch8());
-    return std::make_unique<InstructionJumpRelativeIfZero>(value, true);
-  } else if (opcode == 0x21) { // LD HL, n16
-    u16 value = cpu.Fetch16();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::HL, false, value, 12);
-  } else if (opcode == 0x22) { // LD [HL+], A
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS_INC, ArithmeticTarget::A, LoadOperandType::REGISTER, 8);
-  } else if (opcode == 0x23) { // INC HL
-    return std::make_unique<InstructionInc>(ArithmeticTarget::HL, 8);
-  } else if (opcode == 0x24) { // INC H
-    return std::make_unique<InstructionInc>(ArithmeticTarget::H, 4);
-  } else if (opcode == 0x25) { // DEC H
-    return std::make_unique<InstructionDec>(ArithmeticTarget::H, 4);
-  } else if (opcode == 0x26) { // LD H, n8
-    u8 value = cpu.Fetch8();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::H, false, value, 8);
-  } else if (opcode == 0x27) { // DAA
-    return std::make_unique<InstructionDAA>();
-  } else if (opcode == 0x28) { // JR Z, e8
-    s8 value = as_signed(cpu.Fetch8());
-    return std::make_unique<InstructionJumpRelativeIfZero>(value, false);
-  } else if (opcode == 0x29) { // ADD HL, HL
-    return std::make_unique<InstructionAdd>(ArithmeticTarget::HL, ArithmeticTarget::HL, false, 8);
-  } else if (opcode == 0x2A) { // LD A, [HL+]
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::DE, LoadOperandType::AS_ADDRESS_INC, 8);
-  } else if (opcode == 0x2B) { // DEC HL
-    return std::make_unique<InstructionDec>(ArithmeticTarget::HL, 8);
-  } else if (opcode == 0x2C) { // INC L
-    return std::make_unique<InstructionInc>(ArithmeticTarget::L, 4);
-  } else if (opcode == 0x2D) { // DEC L
-    return std::make_unique<InstructionDec>(ArithmeticTarget::L, 4);
-  } else if (opcode == 0x2E) { // LD L, n8
-    u8 value = cpu.Fetch8();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::L, false, value, 8);
-  } else if (opcode == 0x2F) { // CPL
-    return std::make_unique<InstructionComplement>();
-  } else if (opcode == 0x30) { // JR NC, e8
-    s8 value = as_signed(cpu.Fetch8());
-    return std::make_unique<InstructionJumpRelativeIfCarry>(value, true);
-  } else if (opcode == 0x31) { // LD SP, n16
-    u16 value = cpu.Fetch16();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::SP, false, value, 12);
-  } else if (opcode == 0x32) { // LD [HL-], A
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS_DEC, ArithmeticTarget::A, LoadOperandType::REGISTER, 8);
-  } else if (opcode == 0x33) { // INC SP
-    return std::make_unique<InstructionInc>(ArithmeticTarget::SP, 8);
-  } else if (opcode == 0x34) { // INC [HL]
-    return std::make_unique<InstructionInc>(ArithmeticTarget::HL, IncDecOperandType::MEMORY, 12);
-  } else if (opcode == 0x35) { // DEC [HL]
-    return std::make_unique<InstructionDec>(ArithmeticTarget::HL, IncDecOperandType::MEMORY, 12);
-  } else if (opcode == 0x36) { // LD [HL], n8
-    u8 value = cpu.Fetch8();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::HL, true, value, 12);
-  } else if (opcode == 0x37) { // SCF
-    return std::make_unique<InstructionSetCarryFlag>();
-  } else if (opcode == 0x38) { // JR C, e8
-    s8 value = as_signed(cpu.Fetch8());
-    return std::make_unique<InstructionJumpRelativeIfCarry>(value, false);
-  } else if (opcode == 0x39) { // ADD HL, SP
-    return std::make_unique<InstructionAdd>(ArithmeticTarget::HL, ArithmeticTarget::SP, false, 8);
-  } else if (opcode == 0x3A) { // LD A, [HL-]
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::DE, LoadOperandType::AS_ADDRESS_DEC, 8);
-  } else if (opcode == 0x3B) { // DEC SP
-    return std::make_unique<InstructionDec>(ArithmeticTarget::HL, 8);
-  } else if (opcode == 0x3C) { // INC A
-    return std::make_unique<InstructionInc>(ArithmeticTarget::A, 4);
-  } else if (opcode == 0x3D) { // DEC A
-    return std::make_unique<InstructionDec>(ArithmeticTarget::A, 4);
-  } else if (opcode == 0x3E) { // LD A, n8
-    u8 value = cpu.Fetch8();
-    return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::A, false, value, 8);
-  } else if (opcode == 0x3F) { // CCF
-    return std::make_unique<InstructionComplementCarryFlag>();
+struct InstructionHalt : Instruction {
+
+  InstructionHalt() : Instruction(InstructionType::HALT) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    cpu.Halt();
+    return 4;
   }
-  return nullptr;
-}
+};
+
+struct InstructionReturn : Instruction {
+
+  bool from_interrupt_;
+
+  InstructionReturn(bool from_interrupt) : Instruction(from_interrupt ? InstructionType::RETI : InstructionType::RET), from_interrupt_(from_interrupt) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    registers.pc = cpu.Pop();
+    if (from_interrupt_) {
+      cpu.ime_ = true;
+      std::cout << "reti: " << ToHex(registers.pc) << std::endl;
+    } else {
+      std::cout << "ret: " << ToHex(registers.pc) << std::endl;
+    }
+    return 16;
+  }
+};
+
+struct InstructionReturnIfZero : Instruction {
+
+  bool is_not_;
+
+  InstructionReturnIfZero(bool is_not) : Instruction(InstructionType::RET), is_not_(is_not) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    if (registers.flags.f.zero != is_not_) {
+      registers.pc = cpu.Pop();
+      return 20;
+    }
+    return 8;
+  }
+};
+
+struct InstructionReturnIfCarry : Instruction {
+
+  bool is_not_;
+
+  InstructionReturnIfCarry(bool is_not) : Instruction(InstructionType::RET), is_not_(is_not) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    if (registers.flags.f.carry != is_not_) {
+      registers.pc = cpu.Pop();
+      return 20;
+    }
+    return 8;
+  }
+};
+
+struct InstructionPop : Instruction {
+
+  ArithmeticTarget to_;
+
+  InstructionPop(ArithmeticTarget to) : Instruction(InstructionType::POP), to_(to) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    registers.Set(to_, cpu.Pop());
+    return 12;
+  }
+};
+
+struct InstructionPopAF : Instruction {
+
+  InstructionPopAF() : Instruction(InstructionType::POP) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 value = cpu.Pop();
+    // A        F
+    // 00000000 00000000
+    registers.a = value >> 8;
+    registers.flags.v = value & 0xFF;
+    return 12;
+  }
+};
+
+struct InstructionPush : Instruction {
+
+  ArithmeticTarget to_;
+
+  InstructionPush(ArithmeticTarget to) : Instruction(InstructionType::PUSH), to_(to) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    cpu.Push(registers.Get(to_));
+    return 16;
+  }
+};
+
+struct InstructionPushAF : Instruction {
+
+  InstructionPushAF() : Instruction(InstructionType::PUSH) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    u16 af = ((u16)registers.a << 8) | registers.flags.v;
+    cpu.Push(af);
+    return 16;
+  }
+};
+
+struct InstructionDisableInterrupt : Instruction {
+
+  InstructionDisableInterrupt() : Instruction(InstructionType::DI) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    cpu.SetInterruptMasterEnable(false);
+    return 4;
+  }
+};
+
+struct InstructionEnableInterrupt : Instruction {
+
+  InstructionEnableInterrupt() : Instruction(InstructionType::EI) {}
+
+  int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
+    cpu.SetInterruptMasterEnable(true);
+    return 4;
+  }
+};
+
+// Extended ($CB prefixed)
+std::unique_ptr<Instruction> FetchPrefixed(CPU& cpu, Registers& registers, MemoryBus& bus);
+
+std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bus);

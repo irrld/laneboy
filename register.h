@@ -35,8 +35,8 @@ union Flags {
 union Register {
   u16 v;
   struct {
-    u8 hi;
     u8 lo;
+    u8 hi;
   } f;
 };
 

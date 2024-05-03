@@ -2,30 +2,24 @@
 
 #include "util.h"
 
-#define CHECK_OOB(address) assert(address < 0xFFFF && address > 0)
+class MemoryBus {
+ public:
+  MemoryBus();
 
-struct MemoryBus {
-  u8 memory_[0xFFFF];
+  u8 Read8(u16 address);
+  u16 Read16(u16 address);
 
-  u8 Read8(u16 address) {
-    return memory_[address];
-  }
+  void Write8(u16 address, u8 value);
+  void Write16(u16 address, u16 value);
 
-  u16 Read16(u16 address) {
-    CHECK_OOB(address);
-    CHECK_OOB(address + 1);
-    return ((u16)memory_[address] << 8) | memory_[address + 1];
-  }
+  bool SetNoUninitializedRAM(bool no_uninitialized_ram);
+ private:
+  friend class CPU;
 
-  void Write8(u16 address, u8 value) {
-    CHECK_OOB(address);
-    memory_[address] = value;
-  }
+  u8 mem_[0x10000]{};
+  u8 boot_mem_[0x10000]{};
+  bool boot_map_[0x10000]{};
+  bool init_map_[0x10000]{};
+  bool no_uninitialized_ram_ = true;
 
-  void Write16(u16 address, u16 value) {
-    CHECK_OOB(address);
-    CHECK_OOB(address + 1);
-    memory_[address] = value >> 8;
-    memory_[address + 1] = value & 0xFF;
-  }
 };
