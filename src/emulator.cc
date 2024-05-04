@@ -24,7 +24,7 @@ bool Emulator::LoadCartridge(const std::string& file_path) {
   cpu_ = nullptr;
   bus_ = nullptr;
 
-  std::unique_ptr<Cartridge> cartridge = std::make_unique<Cartridge>("rom/zelda.gb");
+  std::unique_ptr<Cartridge> cartridge = std::make_unique<Cartridge>(file_path);
   if (!cartridge->is_valid()) {
     std::cout << "cartridge is not valid, shutting down!" << std::endl;
     return false;
@@ -85,10 +85,11 @@ void Emulator::Render() {
   ImGui::SetNextWindowSize(ImVec2(ImGui::GetIO().DisplaySize.x, ImGui::GetIO().DisplaySize.y));
   ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.f, 0.f));
   ImGui::Begin("Main", nullptr, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoBringToFrontOnFocus);
+  ImGui::PopStyleVar();
   if (ImGui::BeginMenuBar()) {
     if (ImGui::BeginMenu("File")) {
       if (ImGui::MenuItem("Open ROM...")) {
-
+        LoadCartridge("rom/zelda.gb");
       }
       ImGui::EndMenu();
     }
@@ -106,5 +107,4 @@ void Emulator::Render() {
   }
   output_->DrawImGui(scaled_width, scaled_height);
   ImGui::End();
-  ImGui::PopStyleVar();
 }
