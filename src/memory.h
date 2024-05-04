@@ -16,6 +16,7 @@ class MemoryDevice {
   virtual void Write(u16 address, u8 value) = 0;
 
   virtual bool CheckAccess(u16 address, AccessType type) = 0;
+
 };
 
 class SinglePointerMemoryDevice : public MemoryDevice {
@@ -47,14 +48,16 @@ class SinglePointerMemoryDevice : public MemoryDevice {
 
 class CallbackOnWriteMemoryDevice : public MemoryDevice {
  public:
-  CallbackOnWriteMemoryDevice(u8* ptr, std::function<void(u16)> callback) : ptr_(ptr), callback_(std::move(callback)) {}
+  CallbackOnWriteMemoryDevice(u8* ptr, std::function<void(u16, u8, u8)> callback) : ptr_(ptr), callback_(std::move(callback)) {}
 
   u8 Read(u16 address) override {
     return *ptr_;
   }
 
   void Write(u16 address, u8 value) override {
+    u8 previous_value = *ptr_;
     *ptr_ = value;
+    callback_(address, previous_value, value);
   }
 
   bool CheckAccess(u16 address, AccessType type) override {
@@ -62,7 +65,60 @@ class CallbackOnWriteMemoryDevice : public MemoryDevice {
   }
  private:
   u8* ptr_;
-  std::function<void(u16)> callback_;
+  std::function<void(u16, u8, u8)> callback_;
+};
+
+template<size_t size>
+class FixedMemoryDevice : public MemoryDevice {
+ public:
+  FixedMemoryDevice(u16 start_address, std::array<u8, size>& original, bool read, bool write) : original_(original), start_address_(start_address), read_(read), write_(write) {}
+
+  u8 Read(u16 address) override {
+    if (disabled_) {
+      return 0xFF;
+    }
+    return original_[address - start_address_];
+  }
+
+  void Write(u16 address, u8 value) override {
+    if (disabled_) {
+      return;
+    }
+    original_[address - start_address_] = value;
+  }
+
+  bool CheckAccess(u16 address, AccessType type) override {
+    u16 relative_address = address - start_address_;
+    if (relative_address < 0 || relative_address > original_.size()) {
+      return false;
+    }
+    return (type == AccessType::Read && read_) || (type == AccessType::Write && write_);
+  }
+
+  // Disable is used mainly for VRAM while PPU is accessing it
+  void Disable() {
+    disabled_ = true;
+  }
+
+  void Enabled() {
+    disabled_ = false;
+  }
+ protected:
+  u16 start_address_;
+  std::array<u8, size>& original_;
+  bool read_;
+  bool write_;
+  bool disabled_ = false;
+};
+
+template<size_t size>
+class SwitchingMemoryDevice : public FixedMemoryDevice<size> {
+ public:
+  SwitchingMemoryDevice(u16 start_address, std::array<u8, size>& original, bool read, bool write) : FixedMemoryDevice<size>(start_address, original, read, write) {}
+
+  void Switch(std::array<u8, size>& array) {
+    FixedMemoryDevice<size>::original_ = array;
+  }
 };
 
 class MemoryBus {

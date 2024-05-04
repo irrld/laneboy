@@ -5,8 +5,6 @@
 #include <functional>
 
 enum EventType {
-  EventTypeMemoryRead,
-  EventTypeMemoryWrite,
   EventTypeLast
 };
 

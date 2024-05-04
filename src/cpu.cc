@@ -24,25 +24,70 @@ class BootROMDevice : public MemoryDevice {
   u16 size_;
 };
 
-CPU::CPU() {
+CPU::CPU(MemoryBus& bus) : bus_(bus) {
+  SetClockSpeed(BASE_CPU_CLOCK_SPEED);
+
   ie_md_ = std::make_unique<SinglePointerMemoryDevice>(&ie_, true, true);
+  bus_.AddDevice(INTERRUPT_ENABLE_ADDRESS, ie_md_.get(), true);
   if_md_ = std::make_unique<SinglePointerMemoryDevice>(&if_, true, true);
+  bus_.AddDevice(INTERRUPT_FLAG_ADDRESS, if_md_.get(), true);
   div_md_ = std::make_unique<SinglePointerMemoryDevice>(&div_, true, true);
+  bus_.AddDevice(DIV_ADDRESS, div_md_.get(), true);
   tima_md_ = std::make_unique<SinglePointerMemoryDevice>(&tima_, true, true);
+  bus_.AddDevice(TIMA_ADDRESS, tima_md_.get(), true);
   tma_md_ = std::make_unique<SinglePointerMemoryDevice>(&tma_, true, true);
+  bus_.AddDevice(TMA_ADDRESS, tma_md_.get(), true);
   tac_md_ = std::make_unique<SinglePointerMemoryDevice>(&tac_, true, true);
-  boot_unmap_md_ = std::make_unique<CallbackOnWriteMemoryDevice>(&boot_unloaded_, [this](u8 value){
+  bus_.AddDevice(TAC_ADDRESS, tac_md_.get(), true);
+  boot_unmap_md_ = std::make_unique<CallbackOnWriteMemoryDevice>(&boot_unloaded_, [this](u16 address, u8 previous, u8 value){
     if (value != 0) {
       UnloadBootRom();
     }
   });
-  bus_.AddDevice(INTERRUPT_ENABLE_ADDRESS, ie_md_.get(), true);
-  bus_.AddDevice(INTERRUPT_FLAG_ADDRESS, if_md_.get(), true);
-  bus_.AddDevice(DIV_ADDRESS, div_md_.get(), true);
-  bus_.AddDevice(TIMA_ADDRESS, tima_md_.get(), true);
-  bus_.AddDevice(TMA_ADDRESS, tma_md_.get(), true);
-  bus_.AddDevice(TAC_ADDRESS, tac_md_.get(), true);
   bus_.AddDevice(BOOT_UNMAP_ADDRESS, boot_unmap_md_.get(), true);
+
+  // WRAM 0 is fixed
+  wram_0_md_ = std::make_unique<FixedMemoryDevice<WRAM_SIZE>>(WRAM_0_START_ADDRESS, wram_0_, true, true);
+  bus_.AddDevice(WRAM_0_START_ADDRESS, WRAM_0_START_ADDRESS + WRAM_SIZE, wram_0_md_.get());
+
+  // WRAM 1 is selectable
+  wram_select_ = 0x01;
+  wram_1_7_md_ = std::make_unique<SwitchingMemoryDevice<WRAM_SIZE>>(WRAM_1_7_START_ADDRESS, wram_1_, true, true);
+  bus_.AddDevice(WRAM_1_7_START_ADDRESS, WRAM_1_7_START_ADDRESS + WRAM_SIZE, wram_1_7_md_.get());
+  wram_select_md_ = std::make_unique<CallbackOnWriteMemoryDevice>(&wram_select_, [this](u16 address, u8 previous, u8 value){
+    if (previous == value) {
+      return;
+    }
+    std::cout << "wram select: " << ToHex(previous) << " -> " << ToHex(value) << std::endl;
+    switch (value) {
+      case 0:
+      case 1:
+        wram_1_7_md_->Switch(wram_1_);
+        break;
+      case 2:
+        wram_1_7_md_->Switch(wram_2_);
+        break;
+      case 3:
+        wram_1_7_md_->Switch(wram_3_);
+        break;
+      case 4:
+        wram_1_7_md_->Switch(wram_4_);
+        break;
+      case 5:
+        wram_1_7_md_->Switch(wram_5_);
+        break;
+      case 6:
+        wram_1_7_md_->Switch(wram_6_);
+        break;
+      case 7:
+        wram_1_7_md_->Switch(wram_7_);
+        break;
+      default:
+        wram_select_ = previous;
+        break;
+    }
+  });
+  bus_.AddDevice(WRAM_BANK_SELECT_ADDRESS, wram_select_md_.get());
 }
 
 void CPU::Stop() {
@@ -159,6 +204,12 @@ void CPU::ClearInterrupt(InterruptType type) {
 void CPU::SetInterruptMasterEnable(bool enable) {
   ime_ = enable;
   std::cout << "interrupt master enable: " << BoolToStr(enable) << std::endl;
+}
+
+void CPU::SetClockSpeed(u32 clock_speed) {
+  clock_speed_ = clock_speed;
+  timer_period_ = clock_speed / 4096;
+  div_period_ = clock_speed / 16384;
 }
 
 void CPU::Push(u16 value) {
