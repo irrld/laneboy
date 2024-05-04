@@ -1,7 +1,8 @@
 #pragma once
 
-#include "register.h"
+#include "cartridge.h"
 #include "memory.h"
+#include "register.h"
 
 //V-Blank: 0x40
 //LCD STAT: 0x48
@@ -36,6 +37,7 @@ inline std::string InterruptTypeToString(InterruptType type) {
 
 #define INTERRUPT_ENABLE_ADDRESS 0xFFFF
 #define INTERRUPT_FLAG_ADDRESS 0xFF0F
+#define BOOT_UNMAP_ADDRESS 0xFF50
 // Timer stuff
 #define DIV_ADDRESS 0xFF04
 #define TIMA_ADDRESS 0xFF05
@@ -45,18 +47,38 @@ inline std::string InterruptTypeToString(InterruptType type) {
 struct CPU {
   Registers registers_;
   MemoryBus bus_;
+  std::unique_ptr<Cartridge> cartridge_;
+  std::unique_ptr<MemoryDevice> rom_device_;
+  u16 rom_size_;
 
   bool running_ = false;
   bool halted_ = false;
   u32 clock_speed_ = 0; // in T-cycles
   u32 current_cycle_ = 0;
   u32 ic_ = 0; // instruction counter
+  u8 boot_unloaded_ = true; // not loaded by default
 
+  // Interrupt
   bool ime_ = false;
+  u8 ie_ = 0;
+  u8 if_ = 0;
 
   // Timer
+  u8 div_ = 0;
+  u8 tima_ = 0;
+  u8 tma_ = 0;
+  u8 tac_ = 0;
   u32 timer_period_ = 0;
   u32 div_period_ = 0;
+
+  // Memory devices for mapping
+  std::unique_ptr<MemoryDevice> ie_md_;
+  std::unique_ptr<MemoryDevice> if_md_;
+  std::unique_ptr<MemoryDevice> div_md_;
+  std::unique_ptr<MemoryDevice> tima_md_;
+  std::unique_ptr<MemoryDevice> tma_md_;
+  std::unique_ptr<MemoryDevice> tac_md_;
+  std::unique_ptr<MemoryDevice> boot_unmap_md_;
 
   CPU();
 
@@ -86,7 +108,8 @@ struct CPU {
 
   // Load
   void LoadBootRom(const u8* bin, u16 size);
-  void LoadRom(const u8* bin, u16 size);
+  void UnloadBootRom();
+  void LoadCartridge(std::unique_ptr<Cartridge> cartridge);
 
   // ALU
   u8 Add(u8 first, u8 second);

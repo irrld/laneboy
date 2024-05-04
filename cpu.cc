@@ -2,17 +2,53 @@
 #include "instructions.h"
 #include "debug.h"
 
+class BootROMDevice : public MemoryDevice {
+ public:
+  BootROMDevice(const u8* data, u16 size) : data_(data), size_(size) {
+
+  }
+
+  bool CheckAccess(u16 address, AccessType type) override {
+      return address < size_ && type == AccessType::Read;
+  }
+
+  u8 Read(u16 address) override {
+    return data_[address];
+  }
+
+  void Write(u16 address, u8 value) override {
+  }
+
+ private:
+  const u8* data_;
+  u16 size_;
+};
+
 CPU::CPU() {
-  bus_.Write8(INTERRUPT_ENABLE_ADDRESS, 0);
-  bus_.Write8(INTERRUPT_FLAG_ADDRESS, 0);
-  bus_.Write8(TIMA_ADDRESS, 0);
-  bus_.Write8(TMA_ADDRESS, 0);
-  bus_.Write8(DIV_ADDRESS, 0);
-  bus_.Write8(TAC_ADDRESS
-              , 0);
+  ie_md_ = std::make_unique<SinglePointerMemoryDevice>(&ie_, true, true);
+  if_md_ = std::make_unique<SinglePointerMemoryDevice>(&if_, true, true);
+  div_md_ = std::make_unique<SinglePointerMemoryDevice>(&div_, true, true);
+  tima_md_ = std::make_unique<SinglePointerMemoryDevice>(&tima_, true, true);
+  tma_md_ = std::make_unique<SinglePointerMemoryDevice>(&tma_, true, true);
+  tac_md_ = std::make_unique<SinglePointerMemoryDevice>(&tac_, true, true);
+  boot_unmap_md_ = std::make_unique<CallbackOnWriteMemoryDevice>(&boot_unloaded_, [this](u8 value){
+    if (value != 0) {
+      UnloadBootRom();
+    }
+  });
+  bus_.AddDevice(INTERRUPT_ENABLE_ADDRESS, ie_md_.get(), true);
+  bus_.AddDevice(INTERRUPT_FLAG_ADDRESS, if_md_.get(), true);
+  bus_.AddDevice(DIV_ADDRESS, div_md_.get(), true);
+  bus_.AddDevice(TIMA_ADDRESS, tima_md_.get(), true);
+  bus_.AddDevice(TMA_ADDRESS, tma_md_.get(), true);
+  bus_.AddDevice(TAC_ADDRESS, tac_md_.get(), true);
+  bus_.AddDevice(BOOT_UNMAP_ADDRESS, boot_unmap_md_.get(), true);
 }
+
 void CPU::Stop() {
   running_ = false;
+  // stop is much more complicated than this
+  // https://gbdev.io/pandocs/Reducing_Power_Consumption.html#the-bizarre-case-of-the-game-boy-stop-instruction-before-even-considering-timing
 }
 
 void CPU::Halt() {
@@ -41,13 +77,19 @@ void CPU::HandleInterrupts() {
     return;
   }
   u8 max = static_cast<u8>(InterruptType::InterruptMax);
-  u8 ine = bus_.Read8(INTERRUPT_ENABLE_ADDRESS);
-  u8 inf = bus_.Read8(INTERRUPT_FLAG_ADDRESS);
   for (u8 i = 0; i < max; ++i) {
-    if ((ine & inf & (1 << i)) == 0) {
+    if ((ie_ & if_ & (1 << i)) == 0) {
       continue;
     }
+    // cpu waits wait 2 M-cycles
+    current_cycle_ += 4 * 2; // 8 T-cycles
+    // todo we don't actually wait here, it would be better to make the cpu execute
+    // two nop instructions before doing anything (in CPU::Step)
     Push(registers_.pc);
+    // pushing the PC to stack consumes 2 M-cycles
+    current_cycle_ += 4 * 2; // 8 T-cycles
+    // changing the PC consumes 1 last M-cycle
+    current_cycle_ += 4 * 1; // 4 T-cycles
     registers_.pc = 0x0040 + i * 8;
     ClearInterrupt((InterruptType) i);
     break;
@@ -62,16 +104,13 @@ void CPU::UpdateTimers(int cycles) {
     if (timer_period_ <= 0) {
       SetClockFrequency();
 
-      u8 tima = bus_.Read8(TIMA_ADDRESS);
-      if (((u16)tima + 1) > 0xFF) {
-        u8 tma = bus_.Read8(TMA_ADDRESS);
-        tima = tma;
+      if (((u16)tima_ + 1) > 0xFF) {
+        tima_ = tma_;
 
         SendInterrupt(InterruptType::Timer);
       } else {
-        tima++;
+        tima_++;
       }
-      bus_.Write8(TIMA_ADDRESS, tima);
     }
   }
 }
@@ -79,16 +118,12 @@ void CPU::UpdateTimers(int cycles) {
 void CPU::UpdateDividerRegister(int cycles) {
   if (div_period_ <= 0) {
     div_period_ = 256;
-
-    u8 div = bus_.Read8(DIV_ADDRESS);
-    div++;
-    bus_.Write8(DIV_ADDRESS, div);
+    div_++;
   }
-
 }
+
 void CPU::SetClockFrequency() {
-  u8 tac = bus_.Read8(TAC_ADDRESS);
-  switch (tac & 0b11) {
+  switch (tac_ & 0b11) {
     case 0: timer_period_ = 1024; break; // 4096Hz
     case 1: timer_period_ = 16;   break; // 262144Hz
     case 2: timer_period_ = 64;   break; // 65536Hz
@@ -97,38 +132,28 @@ void CPU::SetClockFrequency() {
 }
 
 bool CPU::IsTimerEnabled() {
-  u8 tac = bus_.Read8(TAC_ADDRESS);
-  return (tac & 0b0100) != 0;
+  return (tac_ & 0b0100) != 0;
 }
 
 void CPU::EnableInterrupt(InterruptType type) {
   std::cout << "enable interrupt: " << InterruptTypeToString(type) << std::endl;
-  u8 ine = bus_.Read8(INTERRUPT_ENABLE_ADDRESS);
-  ine |= (u8)type;
-  bus_.Write8(INTERRUPT_ENABLE_ADDRESS, ine);
+  ie_ |= (u8)type;
 }
 
 void CPU::DisableInterrupt(InterruptType type) {
   std::cout << "disable interrupt: " << InterruptTypeToString(type) << std::endl;
-  u8 ine = bus_.Read8(INTERRUPT_ENABLE_ADDRESS);
-  ine &= ~(u8)type;
-  bus_.Write8(INTERRUPT_ENABLE_ADDRESS, ine);
+  ie_ &= ~(u8)type;
 }
 
 void CPU::SendInterrupt(InterruptType type) {
   std::cout << "send interrupt: " << InterruptTypeToString(type) << std::endl;
-  u8 inf = bus_.Read8(INTERRUPT_FLAG_ADDRESS);
-  inf |= (u8)type;
-  bus_.Write8(INTERRUPT_FLAG_ADDRESS, inf);
+  if_ |= (u8)type;
   halted_ = false;
 }
 
 void CPU::ClearInterrupt(InterruptType type) {
   std::cout << "clear interrupt: " << InterruptTypeToString(type) << std::endl;
-  u8 inf = bus_.Read8(INTERRUPT_FLAG_ADDRESS);
-  inf &= ~(u8)type;
-  bus_.Write8(INTERRUPT_FLAG_ADDRESS, inf);
-  halted_ = false;
+  if_ &= ~(u8)type;
 }
 
 void CPU::SetInterruptMasterEnable(bool enable) {
@@ -138,41 +163,55 @@ void CPU::SetInterruptMasterEnable(bool enable) {
 
 void CPU::Push(u16 value) {
   registers_.sp -= 2;
-  bus_.Write16(registers_.sp, value);
+  bus_.WriteWord(registers_.sp, value);
 }
 
 u16 CPU::Pop() {
-  u16 value = bus_.Read16(registers_.sp);
+  u16 value = bus_.ReadWord(registers_.sp);
   registers_.sp += 2;
   return value;
 }
 
 u8 CPU::Fetch8() {
-  u16 v = bus_.Read8(registers_.pc);
+  u16 v = bus_.Read(registers_.pc);
   registers_.pc++;
   return v;
 }
 
 u16 CPU::Fetch16() {
-  u16 v = bus_.Read16(registers_.pc);
+  u16 v = bus_.ReadWord(registers_.pc);
   registers_.pc += 2;
   return v;
 }
 
 void CPU::LoadBootRom(const u8* bin, u16 size) {
-  u16 first_size = std::min(size, (u16) 0xFF);
-  memcpy(bus_.boot_mem_, bin, first_size);
-  memset(bus_.boot_map_, true, first_size);
-  if (size > 0xFF) {
-    u16 second_size = size - 0x0200;
-    memset(bus_.boot_map_ + 0x0200, true, second_size);
-    memcpy(bus_.boot_mem_ + 0x0200, bin + 0x0200, second_size);
+  if (!boot_unloaded_) {
+    return;
+  }
+  boot_unloaded_ = false;
+  rom_device_ = std::make_unique<BootROMDevice>(bin, size);
+  rom_size_ = size;
+  bus_.AddDevice(0x0000, 0x0100, rom_device_.get());
+  if (size > 0x0100) {
+    bus_.AddDevice(0x0200, 0x08FF, rom_device_.get());
   }
 }
 
-void CPU::LoadRom(const u8* bin, u16 size) {
-    memcpy(bus_.mem_, bin, size);
-    memset(bus_.init_map_, true, size);
+void CPU::UnloadBootRom() {
+  if (boot_unloaded_) {
+    return;
+  }
+  boot_unloaded_ = true;
+  bus_.PopFrontDevice(0x0000, 0x0100);
+  if (rom_size_ > 0x0100) {
+    bus_.PopFrontDevice(0x0200, 0x08FF);
+  }
+  rom_size_ = 0;
+}
+
+void CPU::LoadCartridge(std::unique_ptr<Cartridge> cartridge) {
+  cartridge_ = std::move(cartridge);
+  cartridge_->InitBus(bus_);
 }
 
 u8 CPU::Add(u8 first, u8 second) {

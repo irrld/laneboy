@@ -1,11 +1,16 @@
 #include "cpu.h"
 #include "debug.h"
+#include "cartridge.h"
 
 int main() {
   using clock = std::chrono::steady_clock;
+  std::unique_ptr<Cartridge> cartridge = std::make_unique<Cartridge>("rom/zelda.gb");
+  if (!cartridge->is_valid()) {
+    std::cout << "cartridge is not valid, shutting down!" << std::endl;
+    return -1;
+  }
 
   std::vector<u8> boot = LoadBin("rom/cgb_boot.bin");
-  std::vector<u8> game = LoadBin("rom/zelda.gb");
 
   CPU cpu;
   cpu.clock_speed_ = 4194304; // 4.19MHz, in T-cycles
@@ -14,7 +19,7 @@ int main() {
   cpu.div_period_ = cpu.clock_speed_ / 16384; // 256
 
   cpu.LoadBootRom(boot.data(), boot.size());
-  cpu.LoadRom(game.data(), game.size());
+  cpu.LoadCartridge(std::move(cartridge));
 
   INIT_DEBUGGER(cpu);
 

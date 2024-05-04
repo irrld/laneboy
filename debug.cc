@@ -18,6 +18,31 @@ void Init(CPU& cpu) {
 void OnEmitInstruction(u16 pc, std::string name) {
   std::cout << ToHex(pc) << "\t: " + name << std::endl;
 }
+
+void OnPreExecInstruction() {
+
+}
+
+void OnPostExecInstruction() {
+
+}
+
+void OnMemWrite(u16 pos, u8 oldval, u8 newval) {
+
+}
+
+void OnMemRead(u16 pos, u8 val) {
+
+}
+
+void OnRomRead(u16 pos, u8 val) {
+
+}
+
+void OnRomUnmap() {
+
+}
+
 }
 
 #endif

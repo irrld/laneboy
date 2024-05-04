@@ -101,7 +101,7 @@ struct InstructionLoad : Instruction {
     u16 r = registers.Get(from_);
     u16 value;
     if (from_type_ == LoadOperandType::AS_ADDRESS || from_type_ == LoadOperandType::AS_ADDRESS_INC || from_type_ == LoadOperandType::AS_ADDRESS_DEC) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
@@ -113,7 +113,7 @@ struct InstructionLoad : Instruction {
 
     if (to_type_ == LoadOperandType::AS_ADDRESS || to_type_ == LoadOperandType::AS_ADDRESS_INC || to_type_ == LoadOperandType::AS_ADDRESS_DEC) {
       u16 address = registers.Get(to_);
-      bus.Write8(address, value);
+      bus.Write(address, value);
     } else {
       registers.Set(to_, value);
     }
@@ -155,7 +155,7 @@ struct InstructionLDH1 : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     assert(!is_16bit_register(from_));
     u8 value = registers.Get(from_);
-    bus.Write8(0xFF00 + offset_, value);
+    bus.Write(0xFF00 + offset_, value);
     return 12;
   }
 };
@@ -170,7 +170,7 @@ struct InstructionLDH2 : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     assert(!is_16bit_register(to_));
     u8 value = registers.Get(to_);
-    registers.Set(to_, bus.Read8(0xFF + offset_));
+    registers.Set(to_, bus.Read(0xFF + offset_));
     return 12;
   }
 };
@@ -192,9 +192,9 @@ struct InstructionLoadImmediate : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     if (to_memory_) {
       if (is_16bit) {
-        bus.Write16(registers.Get(to_), value_);
+        bus.WriteWord(registers.Get(to_), value_);
       } else {
-        bus.Write8(registers.Get(to_), value_);
+        bus.Write(registers.Get(to_), value_);
       }
     } else {
       registers.Set(to_, value_);
@@ -213,7 +213,7 @@ struct InstructionLoadImmediateAddress : Instruction {
       : Instruction(InstructionType::LD), to_(result), value_(value), cycles_(cycles) {}
 
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
-    u8 value = bus.Read8(value_);
+    u8 value = bus.Read(value_);
     registers.Set(to_, value);
     return cycles_;
   }
@@ -236,15 +236,15 @@ struct InstructionLoadToAddress : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     if (from_memory_) {
       if (is_16bit_) {
-        bus.Write16(value_, bus.Read16(registers.Get(from_)));
+        bus.WriteWord(value_, bus.ReadWord(registers.Get(from_)));
       } else {
-        bus.Write8(value_, bus.Read8(registers.Get(from_)));
+        bus.Write(value_, bus.Read(registers.Get(from_)));
       }
     } else {
       if (is_16bit_) {
-        bus.Write16(value_, registers.Get(from_));
+        bus.WriteWord(value_, registers.Get(from_));
       } else {
-        bus.Write8(value_, registers.Get(from_));
+        bus.Write(value_, registers.Get(from_));
       }
     }
     return cycles_;
@@ -268,7 +268,7 @@ struct InstructionRotateLeftCircular : Instruction {
     u8 r = registers.Get(to_);
     u8 value;
     if (to_memory_) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
@@ -277,7 +277,7 @@ struct InstructionRotateLeftCircular : Instruction {
     registers.flags.f.carry = carry;
     value = value | carry;
     if (to_memory_) {
-      bus.Write8(r, value);
+      bus.Write(r, value);
     } else {
       registers.Set(to_, value);
     }
@@ -305,7 +305,7 @@ struct InstructionRotateRightCircular : Instruction {
     u8 r = registers.Get(to_);
     u8 value;
     if (to_memory_) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
@@ -314,7 +314,7 @@ struct InstructionRotateRightCircular : Instruction {
     registers.flags.f.carry = carry;
     value = value | (carry << 7);
     if (to_memory_) {
-      bus.Write8(r, value);
+      bus.Write(r, value);
     } else {
       registers.Set(to_, value);
     }
@@ -342,7 +342,7 @@ struct InstructionRotateLeft : Instruction {
     u8 r = registers.Get(to_);
     u8 value;
     if (to_memory_) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
@@ -350,7 +350,7 @@ struct InstructionRotateLeft : Instruction {
     value = (value << 1) & 0b1111'1111;
     registers.flags.f.carry = carry;
     if (to_memory_) {
-      bus.Write8(r, value);
+      bus.Write(r, value);
     } else {
       registers.Set(to_, value);
     }
@@ -378,7 +378,7 @@ struct InstructionRotateRight : Instruction {
     u8 r = registers.Get(to_);
     u8 value;
     if (to_memory_) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
@@ -386,7 +386,7 @@ struct InstructionRotateRight : Instruction {
     value = (value >> 1) & 0b0111'1111;
     registers.flags.f.carry = carry;
     if (to_memory_) {
-      bus.Write8(r, value);
+      bus.Write(r, value);
     } else {
       registers.Set(to_, value);
     }
@@ -411,7 +411,7 @@ struct InstructionShiftLeftArithmetic : Instruction {
     u8 r = registers.Get(to_);
     u8 value;
     if (to_memory_) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
@@ -422,7 +422,7 @@ struct InstructionShiftLeftArithmetic : Instruction {
     registers.flags.f.half_carry = false;
     registers.flags.f.subtract = false;
     if (to_memory_) {
-      bus.Write8(r, value);
+      bus.Write(r, value);
     } else {
       registers.Set(to_, value);
     }
@@ -444,7 +444,7 @@ struct InstructionShiftRightArithmetic : Instruction {
     u8 r = registers.Get(to_);
     u8 value;
     if (to_memory_) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
@@ -457,7 +457,7 @@ struct InstructionShiftRightArithmetic : Instruction {
     registers.flags.f.half_carry = false;
     registers.flags.f.subtract = false;
     if (to_memory_) {
-      bus.Write8(r, value);
+      bus.Write(r, value);
     } else {
       registers.Set(to_, value);
     }
@@ -479,7 +479,7 @@ struct InstructionShiftRightLogical : Instruction {
     u8 r = registers.Get(to_);
     u8 value;
     if (to_memory_) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
@@ -490,7 +490,7 @@ struct InstructionShiftRightLogical : Instruction {
     registers.flags.f.half_carry = false;
     registers.flags.f.subtract = false;
     if (to_memory_) {
-      bus.Write8(r, value);
+      bus.Write(r, value);
     } else {
       registers.Set(to_, value);
     }
@@ -512,7 +512,7 @@ struct InstructionSwap : Instruction {
     u8 r = registers.Get(to_);
     u8 value;
     if (to_memory_) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
@@ -524,7 +524,7 @@ struct InstructionSwap : Instruction {
     registers.flags.f.half_carry = false;
     registers.flags.f.subtract = false;
     if (to_memory_) {
-      bus.Write8(r, value);
+      bus.Write(r, value);
     } else {
       registers.Set(to_, value);
     }
@@ -547,7 +547,7 @@ struct InstructionBit : Instruction {
     u8 r = registers.Get(to_);
     u8 value;
     if (to_memory_) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
@@ -573,13 +573,13 @@ struct InstructionSet : Instruction {
     u8 r = registers.Get(to_);
     u8 value;
     if (to_memory_) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
     value |= (1 << bit_);
     if (to_memory_) {
-      bus.Write8(r, value);
+      bus.Write(r, value);
     } else {
       registers.Set(to_, value);
     }
@@ -602,13 +602,13 @@ struct InstructionRes : Instruction {
     u8 r = registers.Get(to_);
     u8 value;
     if (to_memory_) {
-      value = bus.Read8(r);
+      value = bus.Read(r);
     } else {
       value = r;
     }
     value &= ~(1 << bit_);
     if (to_memory_) {
-      bus.Write8(r, value);
+      bus.Write(r, value);
     } else {
       registers.Set(to_, value);
     }
@@ -647,8 +647,8 @@ struct InstructionInc : Instruction {
       }
     } else {
       u16 address = registers.Get(to_);
-      u8 result = cpu.Inc(bus.Read8(address));
-      bus.Write8(address, result);
+      u8 result = cpu.Inc(bus.Read(address));
+      bus.Write(address, result);
     }
     return cycles_;
   }
@@ -674,8 +674,8 @@ struct InstructionDec : Instruction {
       }
     } else {
       u16 address = registers.Get(to_);
-      u8 result = cpu.Dec(bus.Read8(address));
-      bus.Write8(address, result);
+      u8 result = cpu.Dec(bus.Read(address));
+      bus.Write(address, result);
     }
     return cycles_;
   }
@@ -693,7 +693,7 @@ struct InstructionAdd : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     u16 value;
     if (from_memory_) {
-      value = bus.Read8(registers.Get(from_));
+      value = bus.Read(registers.Get(from_));
     } else {
       value = registers.Get(from_);
     }
@@ -764,7 +764,7 @@ struct InstructionAddCarry : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     u16 value;
     if (from_memory_) {
-      value = bus.Read8(registers.Get(from_));
+      value = bus.Read(registers.Get(from_));
     } else {
       value = registers.Get(from_);
     }
@@ -802,7 +802,7 @@ struct InstructionSub : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     u16 value;
     if (from_memory_) {
-      value = bus.Read8(registers.Get(from_));
+      value = bus.Read(registers.Get(from_));
     } else {
       value = registers.Get(from_);
     }
@@ -845,7 +845,7 @@ struct InstructionSubCarry : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     u16 value;
     if (from_memory_) {
-      value = bus.Read8(registers.Get(from_));
+      value = bus.Read(registers.Get(from_));
     } else {
       value = registers.Get(from_);
     }
@@ -884,7 +884,7 @@ struct InstructionAnd : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     u16 value;
     if (from_memory_) {
-      value = bus.Read8(registers.Get(from_));
+      value = bus.Read(registers.Get(from_));
     } else {
       value = registers.Get(from_);
     }
@@ -929,7 +929,7 @@ struct InstructionXOR : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     u16 value;
     if (from_memory_) {
-      value = bus.Read8(registers.Get(from_));
+      value = bus.Read(registers.Get(from_));
     } else {
       value = registers.Get(from_);
     }
@@ -974,7 +974,7 @@ struct InstructionOr : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     u16 value;
     if (from_memory_) {
-      value = bus.Read8(registers.Get(from_));
+      value = bus.Read(registers.Get(from_));
     } else {
       value = registers.Get(from_);
     }
@@ -1019,7 +1019,7 @@ struct InstructionCompare : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     u8 value;
     if (from_memory_) {
-      value = bus.Read8(registers.Get(from_));
+      value = bus.Read(registers.Get(from_));
     } else {
       assert(!is_16bit_register(from_));
       value = registers.Get(from_);
@@ -1060,8 +1060,7 @@ struct InstructionJumpRelative : Instruction {
   InstructionJumpRelative(s8 value) : Instruction(InstructionType::JR), value_(value) {}
 
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
-    registers.pc += 2;
-    registers.pc = (registers.pc + ((value_ ^ 0x80) - 0x80)) & 0xFFFF;
+    registers.pc = (registers.pc + value_) & 0xFFFF;
     return 12;
   }
 };
@@ -1074,8 +1073,7 @@ struct InstructionJumpRelativeIfZero : Instruction {
 
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     if (registers.flags.f.zero != is_not_) {
-      registers.pc += 2;
-      registers.pc = (registers.pc + ((value_ ^ 0x80) - 0x80)) & 0xFFFF;
+      registers.pc = (registers.pc + value_) & 0xFFFF;
       return 12;
     }
     return 8;
@@ -1090,8 +1088,7 @@ struct InstructionJumpRelativeIfCarry : Instruction {
 
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     if (registers.flags.f.carry != is_not_) {
-      registers.pc += 2;
-      registers.pc = (registers.pc + ((value_ ^ 0x80) - 0x80)) & 0xFFFF;
+      registers.pc = (registers.pc + value_) & 0xFFFF;
       return 12;
     }
     return 8;
@@ -1149,7 +1146,6 @@ struct InstructionCall : Instruction {
   int Execute(CPU& cpu, Registers& registers, MemoryBus& bus) override {
     cpu.Push(registers.pc + CALL_PC_OFFSET);
     registers.pc = value_;
-    std::cout << "call: " << ToHex(value_) << std::endl;
     return 24;
   }
 };
@@ -1181,7 +1177,6 @@ struct InstructionCallIfCarry : Instruction {
     if (registers.flags.f.carry != is_not_) {
       cpu.Push(registers.pc + CALL_PC_OFFSET);
       registers.pc = value_;
-      std::cout << "call: " << ToHex(value_) << std::endl;
       return 24;
     }
     return 12;
@@ -1276,9 +1271,6 @@ struct InstructionReturn : Instruction {
     registers.pc = cpu.Pop();
     if (from_interrupt_) {
       cpu.ime_ = true;
-      std::cout << "reti: " << ToHex(registers.pc) << std::endl;
-    } else {
-      std::cout << "ret: " << ToHex(registers.pc) << std::endl;
     }
     return 16;
   }

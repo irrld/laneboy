@@ -13,6 +13,7 @@ add_executable(gameboy_emu
         util.cc
         debug.cc
         instructions.cc
+        cartridge.cc
 )
 
 find_package(fmt CONFIG REQUIRED)
