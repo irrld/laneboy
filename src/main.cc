@@ -1,7 +1,10 @@
 #include "emulator.h"
+#include "instructions.h"
+#include "test_opcodes.cc"
 
 int main() {
   Emulator emulator;
-  //emulator.LoadCartridge("src/zelda.gb");
   emulator.Start();
+  //test_opcodes();
 }
+

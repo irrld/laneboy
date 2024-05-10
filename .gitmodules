@@ -1,3 +1,9 @@
 [submodule "vendor/imgui"]
 	path = vendor/imgui
 	url = https://github.com/ocornut/imgui.git
+[submodule "vendor/gbi"]
+	path = vendor/gbi
+	url = https://github.com/koenk/gbit.git
+[submodule "vendor/gbit"]
+	path = vendor/gbit
+	url = https://github.com/koenk/gbit.git

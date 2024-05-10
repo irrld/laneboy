@@ -1,12 +1,24 @@
 #include "instructions.h"
 #include "debug.h"
 
+u8 Fetch(Registers& registers, MemoryBus& bus) {
+  u8 v = bus.Read(registers.pc);
+  registers.pc = registers.pc + 1;
+  return v;
+}
+
+u16 FetchWord(Registers& registers, MemoryBus& bus) {
+  u16 v = bus.ReadWord(registers.pc);
+  registers.pc = registers.pc + 2;
+  return v;
+}
+
 // Extended ($CB prefixed)
-std::unique_ptr<Instruction> FetchPrefixed(CPU& cpu, Registers& registers, MemoryBus& bus) {
+std::unique_ptr<Instruction> FetchPrefixed(ALU& alu, Registers& registers, MemoryBus& bus) {
   // The cycle count of these instructions include the fetching of the prefix value ($CB) as well as
   // the instruction itself
-  u8 pc_begin = cpu.registers_.pc - 1;
-  u8 opcode = cpu.Fetch8();
+  u16 pc_begin = registers.pc - 1;
+  u8 opcode = Fetch(registers, bus);
   if (opcode == 0x00) {  // RLC B
     EMIT_INSTRUCTION(pc_begin, "RLC B");
     return std::make_unique<InstructionRotateLeftCircular>(ArithmeticTarget::B, 8);
@@ -780,18 +792,18 @@ std::unique_ptr<Instruction> FetchPrefixed(CPU& cpu, Registers& registers, Memor
   return nullptr;
 }
 
-std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bus) {
-  u16 pc_begin = cpu.registers_.pc;
-  u8 opcode = cpu.Fetch8();
+std::unique_ptr<Instruction> Fetch(ALU& alu, Registers& registers, MemoryBus& bus) {
+  u16 pc_begin = registers.pc;
+  u8 opcode = Fetch(registers, bus);
   if (opcode == 0x00) {  // NOP
     EMIT_INSTRUCTION(pc_begin, "NOP");
     return std::make_unique<InstructionNoOp>();
   } else if (opcode == 0x01) {  // LD BC, n16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD BC, {}", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::BC, false, value, 12);
   } else if (opcode == 0x02) {  // LD [BC], A
-    EMIT_INSTRUCTION(pc_begin, "LD [BC]");
+    EMIT_INSTRUCTION(pc_begin, "LD [BC], A");
     return std::make_unique<InstructionLoad>(ArithmeticTarget::BC, LoadOperandType::AS_ADDRESS, ArithmeticTarget::A, LoadOperandType::REGISTER, 8);
   } else if (opcode == 0x03) {  // INC BC
     EMIT_INSTRUCTION(pc_begin, "INC BC");
@@ -803,21 +815,21 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "DEC B");
     return std::make_unique<InstructionDec>(ArithmeticTarget::B, 4);
   } else if (opcode == 0x06) {  // LD B, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD B, {}", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::B, false, value, 8);
   } else if (opcode == 0x07) {  // RCLA
     EMIT_INSTRUCTION(pc_begin, "RCLA");
     return std::make_unique<InstructionRotateLeftCircular>();
   } else if (opcode == 0x08) {  // LD [a16], SP
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD [{}], SP", ToHex(value));
-    return std::make_unique<InstructionLoadToAddress>(value, ArithmeticTarget::SP, false, 20);
+    return std::make_unique<InstructionLoadToAddress>(value, ArithmeticTarget::SP, 20);
   } else if (opcode == 0x09) {  // ADD HL, BC
     EMIT_INSTRUCTION(pc_begin, "ADD HL, BC");
     return std::make_unique<InstructionAdd>(ArithmeticTarget::HL, ArithmeticTarget::BC, false, 8);
-  } else if (opcode == 0x0A) {  // LD A, BC
-    EMIT_INSTRUCTION(pc_begin, "LD A, BC");
+  } else if (opcode == 0x0A) {  // LD A, [BC]
+    EMIT_INSTRUCTION(pc_begin, "LD A, [BC]");
     return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::BC, LoadOperandType::AS_ADDRESS, 8);
   } else if (opcode == 0x0B) {  // DEC BC
     EMIT_INSTRUCTION(pc_begin, "DEC BC");
@@ -829,18 +841,18 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "DEC C");
     return std::make_unique<InstructionDec>(ArithmeticTarget::C, 4);
   } else if (opcode == 0x0E) {  // LD C, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD C, [{}]", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::C, false, value, 8);
   } else if (opcode == 0x0F) {  // RRCA
     EMIT_INSTRUCTION(pc_begin, "RRCA");
     return std::make_unique<InstructionRotateRightCircular>();
   } else if (opcode == 0x10) {  // STOP
-    cpu.Fetch8();
+    //Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "STOP");
     return std::make_unique<InstructionStop>();
   } else if (opcode == 0x11) {  // LD DE, n16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD DE, {}", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::DE, false, value, 12);
   } else if (opcode == 0x12) {  // LD [DE], a
@@ -856,14 +868,14 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "DEC D");
     return std::make_unique<InstructionDec>(ArithmeticTarget::D, 4);
   } else if (opcode == 0x16) {  // LD D, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD D, {}", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::D, false, value, 8);
   } else if (opcode == 0x17) {  // RLA
     EMIT_INSTRUCTION(pc_begin, "RLA");
     return std::make_unique<InstructionRotateLeft>();
   } else if (opcode == 0x18) {  // JR e8
-    s8 value = AsSigned(cpu.Fetch8());
+    s8 value = AsSigned(Fetch(registers, bus));
     EMIT_INSTRUCTION(pc_begin, "JR {}", ToHex(value));
     return std::make_unique<InstructionJumpRelative>(value);
   } else if (opcode == 0x19) {  // ADD HL, DE
@@ -882,18 +894,18 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "DEC E");
     return std::make_unique<InstructionDec>(ArithmeticTarget::E, 4);
   } else if (opcode == 0x1E) {  // LD E, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD E, {}", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::E, false, value, 8);
   } else if (opcode == 0x1F) {  // RRA
     EMIT_INSTRUCTION(pc_begin, "RRA");
     return std::make_unique<InstructionRotateRight>();
   } else if (opcode == 0x20) {  // JR NZ, e8
-    s8 value = AsSigned(cpu.Fetch8());
+    s8 value = AsSigned(Fetch(registers, bus));
     EMIT_INSTRUCTION(pc_begin, "JR NZ, {}", ToHex(value));
     return std::make_unique<InstructionJumpRelativeIfZero>(value, true);
   } else if (opcode == 0x21) {  // LD HL, n16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD HL, {}", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::HL, false, value, 12);
   } else if (opcode == 0x22) {  // LD [HL+], A
@@ -909,14 +921,14 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "DEC H");
     return std::make_unique<InstructionDec>(ArithmeticTarget::H, 4);
   } else if (opcode == 0x26) {  // LD H, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD H, {}", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::H, false, value, 8);
   } else if (opcode == 0x27) {  // DAA
     EMIT_INSTRUCTION(pc_begin, "DAA");
     return std::make_unique<InstructionDAA>();
   } else if (opcode == 0x28) {  // JR Z, e8
-    s8 value = AsSigned(cpu.Fetch8());
+    s8 value = AsSigned(Fetch(registers, bus));
     EMIT_INSTRUCTION(pc_begin, "JR Z, {}", ToHex(value));
     return std::make_unique<InstructionJumpRelativeIfZero>(value, false);
   } else if (opcode == 0x29) {  // ADD HL, HL
@@ -935,18 +947,18 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "DEC L");
     return std::make_unique<InstructionDec>(ArithmeticTarget::L, 4);
   } else if (opcode == 0x2E) {  // LD L, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD L, {}", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::L, false, value, 8);
   } else if (opcode == 0x2F) {  // CPL
     EMIT_INSTRUCTION(pc_begin, "CPL");
     return std::make_unique<InstructionComplement>();
   } else if (opcode == 0x30) {  // JR NC, e8
-    s8 value = AsSigned(cpu.Fetch8());
+    s8 value = AsSigned(Fetch(registers, bus));
     EMIT_INSTRUCTION(pc_begin, "JR NC, {}", ToHex(value));
     return std::make_unique<InstructionJumpRelativeIfCarry>(value, true);
   } else if (opcode == 0x31) {  // LD SP, n16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD SP, {}", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::SP, false, value, 12);
   } else if (opcode == 0x32) {  // LD [HL-], A
@@ -962,14 +974,14 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "DEC [HL]");
     return std::make_unique<InstructionDec>(ArithmeticTarget::HL, IncDecOperandType::MEMORY, 12);
   } else if (opcode == 0x36) {  // LD [HL], n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD [HL], {}", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::HL, true, value, 12);
   } else if (opcode == 0x37) {  // SCF
     EMIT_INSTRUCTION(pc_begin, "SCF");
     return std::make_unique<InstructionSetCarryFlag>();
   } else if (opcode == 0x38) {  // JR C, e8
-    s8 value = AsSigned(cpu.Fetch8());
+    s8 value = AsSigned(Fetch(registers, bus));
     EMIT_INSTRUCTION(pc_begin, "JR C, {}", ToHex(value));
     return std::make_unique<InstructionJumpRelativeIfCarry>(value, false);
   } else if (opcode == 0x39) {  // ADD HL, SP
@@ -988,7 +1000,7 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "DEC A");
     return std::make_unique<InstructionDec>(ArithmeticTarget::A, 4);
   } else if (opcode == 0x3E) {  // LD A, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD A, {}", ToHex(value));
     return std::make_unique<InstructionLoadImmediate>(ArithmeticTarget::A, false, value, 8);
   } else if (opcode == 0x3F) {  // CCF
@@ -996,148 +1008,148 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     return std::make_unique<InstructionComplementCarryFlag>();
   } else if (opcode == 0x40) {  // LD B, B
     EMIT_INSTRUCTION(pc_begin, "LD B, B");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::B, ArithmeticTarget::B, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::B, ArithmeticTarget::B, 4);
   } else if (opcode == 0x41) {  // LD B, C
     EMIT_INSTRUCTION(pc_begin, "LD B, C");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::B, ArithmeticTarget::C, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::B, ArithmeticTarget::C, 4);
   } else if (opcode == 0x42) {  // LD B, D
     EMIT_INSTRUCTION(pc_begin, "LD B, D");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::B, ArithmeticTarget::D, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::B, ArithmeticTarget::D, 4);
   } else if (opcode == 0x43) {  // LD B, E
     EMIT_INSTRUCTION(pc_begin, "LD B, E");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::B, ArithmeticTarget::E, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::B, ArithmeticTarget::E, 4);
   } else if (opcode == 0x44) {  // LD B, H
     EMIT_INSTRUCTION(pc_begin, "LD B, H");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::B, ArithmeticTarget::H, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::B, ArithmeticTarget::H, 4);
   } else if (opcode == 0x45) {  // LD B, L
     EMIT_INSTRUCTION(pc_begin, "LD B, L");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::B, ArithmeticTarget::L, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::B, ArithmeticTarget::L, 4);
   } else if (opcode == 0x46) {  // LD B, [HL]
     EMIT_INSTRUCTION(pc_begin, "LD B, [HL]");
     return std::make_unique<InstructionLoad>(ArithmeticTarget::B, LoadOperandType::REGISTER, ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS, 8);
   } else if (opcode == 0x47) {  // LD B, A
     EMIT_INSTRUCTION(pc_begin, "LD B, A");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::B, ArithmeticTarget::A, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::B, ArithmeticTarget::A, 4);
   } else if (opcode == 0x48) {  // LD C, B
     EMIT_INSTRUCTION(pc_begin, "LD C, B");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::C, ArithmeticTarget::B, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::C, ArithmeticTarget::B, 4);
   } else if (opcode == 0x49) {  // LD C, C
     EMIT_INSTRUCTION(pc_begin, "LD C, C");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::C, ArithmeticTarget::C, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::C, ArithmeticTarget::C, 4);
   } else if (opcode == 0x4A) {  // LD C, D
     EMIT_INSTRUCTION(pc_begin, "LD C, D");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::C, ArithmeticTarget::D, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::C, ArithmeticTarget::D, 4);
   } else if (opcode == 0x4B) {  // LD C, E
     EMIT_INSTRUCTION(pc_begin, "LD C, E");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::C, ArithmeticTarget::E, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::C, ArithmeticTarget::E, 4);
   } else if (opcode == 0x4C) {  // LD C, H
     EMIT_INSTRUCTION(pc_begin, "LD C, H");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::C, ArithmeticTarget::H, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::C, ArithmeticTarget::H, 4);
   } else if (opcode == 0x4D) {  // LD C, L
     EMIT_INSTRUCTION(pc_begin, "LD C, L");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::C, ArithmeticTarget::L, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::C, ArithmeticTarget::L, 4);
   } else if (opcode == 0x4E) {  // LD C, [HL]
     EMIT_INSTRUCTION(pc_begin, "LD C, [HL]");
     return std::make_unique<InstructionLoad>(ArithmeticTarget::C, LoadOperandType::REGISTER, ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS, 8);
   } else if (opcode == 0x4F) {  // LD C, A
     EMIT_INSTRUCTION(pc_begin, "LD C, A");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::C, ArithmeticTarget::A, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::C, ArithmeticTarget::A, 4);
   } else if (opcode == 0x50) {  // LD D, B
     EMIT_INSTRUCTION(pc_begin, "LD D, B");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::D, ArithmeticTarget::B, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::D, ArithmeticTarget::B, 4);
   } else if (opcode == 0x51) {  // LD D, C
     EMIT_INSTRUCTION(pc_begin, "LD D, C");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::D, ArithmeticTarget::C, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::D, ArithmeticTarget::C, 4);
   } else if (opcode == 0x52) {  // LD D, D
     EMIT_INSTRUCTION(pc_begin, "LD D, D");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::D, ArithmeticTarget::D, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::D, ArithmeticTarget::D, 4);
   } else if (opcode == 0x53) {  // LD D, E
     EMIT_INSTRUCTION(pc_begin, "LD D, E");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::D, ArithmeticTarget::E, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::D, ArithmeticTarget::E, 4);
   } else if (opcode == 0x54) {  // LD D, H
     EMIT_INSTRUCTION(pc_begin, "LD D, H");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::D, ArithmeticTarget::H, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::D, ArithmeticTarget::H, 4);
   } else if (opcode == 0x55) {  // LD D, L
     EMIT_INSTRUCTION(pc_begin, "LD D, L");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::D, ArithmeticTarget::L, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::D, ArithmeticTarget::L, 4);
   } else if (opcode == 0x56) {  // LD D, [HL]
     EMIT_INSTRUCTION(pc_begin, "LD D, [HL]");
     return std::make_unique<InstructionLoad>(ArithmeticTarget::D, LoadOperandType::REGISTER, ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS, 8);
   } else if (opcode == 0x57) {  // LD D, A
     EMIT_INSTRUCTION(pc_begin, "LD D, A");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::D, ArithmeticTarget::A, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::D, ArithmeticTarget::A, 4);
   } else if (opcode == 0x58) {  // LD E, B
     EMIT_INSTRUCTION(pc_begin, "LD E, B");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::E, ArithmeticTarget::B, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::E, ArithmeticTarget::B, 4);
   } else if (opcode == 0x59) {  // LD E, C
     EMIT_INSTRUCTION(pc_begin, "LD E, C");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::E, ArithmeticTarget::C, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::E, ArithmeticTarget::C, 4);
   } else if (opcode == 0x5A) {  // LD E, D
     EMIT_INSTRUCTION(pc_begin, "LD E, D");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::E, ArithmeticTarget::D, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::E, ArithmeticTarget::D, 4);
   } else if (opcode == 0x5B) {  // LD E, E
     EMIT_INSTRUCTION(pc_begin, "LD E, E");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::E, ArithmeticTarget::E, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::E, ArithmeticTarget::E, 4);
   } else if (opcode == 0x5C) {  // LD E, H
     EMIT_INSTRUCTION(pc_begin, "LD E, H");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::E, ArithmeticTarget::H, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::E, ArithmeticTarget::H, 4);
   } else if (opcode == 0x5D) {  // LD E, L
     EMIT_INSTRUCTION(pc_begin, "LD E, L");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::E, ArithmeticTarget::L, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::E, ArithmeticTarget::L, 4);
   } else if (opcode == 0x5E) {  // LD E, [HL]
     EMIT_INSTRUCTION(pc_begin, "LD E, [HL]");
     return std::make_unique<InstructionLoad>(ArithmeticTarget::E, LoadOperandType::REGISTER, ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS, 8);
   } else if (opcode == 0x5F) {  // LD E, A
     EMIT_INSTRUCTION(pc_begin, "LD E, A");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::E, ArithmeticTarget::A, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::E, ArithmeticTarget::A, 4);
   } else if (opcode == 0x60) {  // LD H, B
     EMIT_INSTRUCTION(pc_begin, "LD H, B");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::H, ArithmeticTarget::B, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::H, ArithmeticTarget::B, 4);
   } else if (opcode == 0x61) {  // LD H, C
     EMIT_INSTRUCTION(pc_begin, "LD H, C");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::H, ArithmeticTarget::C, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::H, ArithmeticTarget::C, 4);
   } else if (opcode == 0x62) {  // LD H, D
     EMIT_INSTRUCTION(pc_begin, "LD H, D");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::H, ArithmeticTarget::D, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::H, ArithmeticTarget::D, 4);
   } else if (opcode == 0x63) {  // LD H, E
     EMIT_INSTRUCTION(pc_begin, "LD H, E");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::H, ArithmeticTarget::E, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::H, ArithmeticTarget::E, 4);
   } else if (opcode == 0x64) {  // LD H, H
     EMIT_INSTRUCTION(pc_begin, "LD H, H");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::H, ArithmeticTarget::H, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::H, ArithmeticTarget::H, 4);
   } else if (opcode == 0x65) {  // LD H, L
     EMIT_INSTRUCTION(pc_begin, "LD H, L");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::H, ArithmeticTarget::L, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::H, ArithmeticTarget::L, 4);
   } else if (opcode == 0x66) {  // LD H, [HL]
-    EMIT_INSTRUCTION(pc_begin, "LD H, HL");
+    EMIT_INSTRUCTION(pc_begin, "LD H, [HL]");
     return std::make_unique<InstructionLoad>(ArithmeticTarget::H, LoadOperandType::REGISTER, ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS, 8);
   } else if (opcode == 0x67) {  // LD H, A
     EMIT_INSTRUCTION(pc_begin, "LD H, A");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::H, ArithmeticTarget::A, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::H, ArithmeticTarget::A, 4);
   } else if (opcode == 0x68) {  // LD L, B
     EMIT_INSTRUCTION(pc_begin, "LD L, B");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::L, ArithmeticTarget::B, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::L, ArithmeticTarget::B, 4);
   } else if (opcode == 0x69) {  // LD L, C
     EMIT_INSTRUCTION(pc_begin, "LD L, C");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::L, ArithmeticTarget::C, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::L, ArithmeticTarget::C, 4);
   } else if (opcode == 0x6A) {  // LD L, D
     EMIT_INSTRUCTION(pc_begin, "LD L, D");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::L, ArithmeticTarget::D, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::L, ArithmeticTarget::D, 4);
   } else if (opcode == 0x6B) {  // LD L, E
     EMIT_INSTRUCTION(pc_begin, "LD L, E");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::L, ArithmeticTarget::E, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::L, ArithmeticTarget::E, 4);
   } else if (opcode == 0x6C) {  // LD L, H
     EMIT_INSTRUCTION(pc_begin, "LD L, H");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::L, ArithmeticTarget::H, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::L, ArithmeticTarget::H, 4);
   } else if (opcode == 0x6D) {  // LD L, L
     EMIT_INSTRUCTION(pc_begin, "LD L, L");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::L, ArithmeticTarget::L, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::L, ArithmeticTarget::L, 4);
   } else if (opcode == 0x6E) {  // LD L, [HL]
     EMIT_INSTRUCTION(pc_begin, "LD L, [HL]");
     return std::make_unique<InstructionLoad>(ArithmeticTarget::L, LoadOperandType::REGISTER, ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS, 8);
   } else if (opcode == 0x6F) {  // LD L, A
     EMIT_INSTRUCTION(pc_begin, "LD L, A");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::L, ArithmeticTarget::A, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::L, ArithmeticTarget::A, 4);
   } else if (opcode == 0x70) {  // LD [HL], B
     EMIT_INSTRUCTION(pc_begin, "LD [HL], B");
     return std::make_unique<InstructionLoad>(ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS, ArithmeticTarget::B, 8);
@@ -1164,28 +1176,28 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     return std::make_unique<InstructionLoad>(ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS, ArithmeticTarget::A, 8);
   } else if (opcode == 0x78) {  // LD A, B
     EMIT_INSTRUCTION(pc_begin, "LD A, B");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, ArithmeticTarget::B, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::A, ArithmeticTarget::B, 4);
   } else if (opcode == 0x79) {  // LD A, C
     EMIT_INSTRUCTION(pc_begin, "LD A, C");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, ArithmeticTarget::C, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::A, ArithmeticTarget::C, 4);
   } else if (opcode == 0x7A) {  // LD A, D
     EMIT_INSTRUCTION(pc_begin, "LD A, D");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, ArithmeticTarget::D, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::A, ArithmeticTarget::D, 4);
   } else if (opcode == 0x7B) {  // LD A, E
     EMIT_INSTRUCTION(pc_begin, "LD A, E");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, ArithmeticTarget::E, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::A, ArithmeticTarget::E, 4);
   } else if (opcode == 0x7C) {  // LD A, H
     EMIT_INSTRUCTION(pc_begin, "LD A, H");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, ArithmeticTarget::H, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::A, ArithmeticTarget::H, 4);
   } else if (opcode == 0x7D) {  // LD A, L
     EMIT_INSTRUCTION(pc_begin, "LD A, L");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, ArithmeticTarget::L, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::A, ArithmeticTarget::L, 4);
   } else if (opcode == 0x7E) {  // LD A, [HL]
     EMIT_INSTRUCTION(pc_begin, "LD A, [HL]");
     return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::HL, LoadOperandType::AS_ADDRESS, 8);
   } else if (opcode == 0x7F) {  // LD A, A
     EMIT_INSTRUCTION(pc_begin, "LD A, A");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, ArithmeticTarget::A, 4);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::A, ArithmeticTarget::A, 4);
   } else if (opcode == 0x80) {  // ADD A, B
     EMIT_INSTRUCTION(pc_begin, "ADD A, B");
     return std::make_unique<InstructionAdd>(ArithmeticTarget::A, ArithmeticTarget::B, false, 4);
@@ -1385,22 +1397,22 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "POP BC");
     return std::make_unique<InstructionPop>(ArithmeticTarget::BC);
   } else if (opcode == 0xC2) {  // JP NZ, a16
-    u16 value = cpu.Fetch16();
-    EMIT_INSTRUCTION(pc_begin, "JR NZ, {}", ToHex(value));
+    u16 value = FetchWord(registers, bus);
+    EMIT_INSTRUCTION(pc_begin, "JP NZ, {}", ToHex(value));
     return std::make_unique<InstructionJumpIfZero>(value, true);
   } else if (opcode == 0xC3) {  // JP a16
-    u16 value = cpu.Fetch16();
-    EMIT_INSTRUCTION(pc_begin, "JR {}", ToHex(value));
+    u16 value = FetchWord(registers, bus);
+    EMIT_INSTRUCTION(pc_begin, "JP {}", ToHex(value));
     return std::make_unique<InstructionJump>(value);
   } else if (opcode == 0xC4) {  // CALL NZ, a16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "CALL NZ, {}", ToHex(value));
     return std::make_unique<InstructionCallIfZero>(value, true);
   } else if (opcode == 0xC5) {  // PUSH BC
     EMIT_INSTRUCTION(pc_begin, "PUSH BC");
     return std::make_unique<InstructionPush>(ArithmeticTarget::BC);
   } else if (opcode == 0xC6) {  // ADD A, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "ADD A, {}", ToHex(value));
     return std::make_unique<InstructionAddImmediate>(ArithmeticTarget::A, value, 8);
   } else if (opcode == 0xC7) {  // RST $00
@@ -1413,21 +1425,21 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "RET");
     return std::make_unique<InstructionReturn>(false);
   } else if (opcode == 0xCA) {  // JP Z, a16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "JP Z, {}", ToHex(value));
     return std::make_unique<InstructionJumpIfZero>(value, false);
   } else if (opcode == 0xCB) {  // extended instructions
-    return FetchPrefixed(cpu, registers, bus);
+    return FetchPrefixed(alu, registers, bus);
   } else if (opcode == 0xCC) {  // CALL Z, a16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "CALL Z, {}", ToHex(value));
     return std::make_unique<InstructionCallIfZero>(value, false);
   } else if (opcode == 0xCD) {  // CALL a16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "CALL {}", ToHex(value));
     return std::make_unique<InstructionCall>(value);
   } else if (opcode == 0xCE) {  // ADD A, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "ADD A, {}", ToHex(value));
     return std::make_unique<InstructionAddCarryImmediate>(ArithmeticTarget::A, value, 8);
   } else if (opcode == 0xCF) {   // RST $08
@@ -1440,21 +1452,21 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "POP DE");
     return std::make_unique<InstructionPop>(ArithmeticTarget::DE);
   } else if (opcode == 0xD2) {  // JP NC, a16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "JP NC, {}", ToHex(value));
     return std::make_unique<InstructionJumpIfCarry>(value, true);
   } else if (opcode == 0xD3) {  // -
-    EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
+    //EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
     // todo hard lock cpu
   } else if (opcode == 0xD4) {  // CALL NC, a16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "CALL NC, {}", ToHex(value));
     return std::make_unique<InstructionCallIfCarry>(value, true);
   } else if (opcode == 0xD5) {  // PUSH DE
     EMIT_INSTRUCTION(pc_begin, "PUSH DE");
     return std::make_unique<InstructionPush>(ArithmeticTarget::DE);
   } else if (opcode == 0xD6) {  // SUB A, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "SUB A, {}", ToHex(value));
     return std::make_unique<InstructionSubImmediate>(ArithmeticTarget::A, value, 8);
   } else if (opcode == 0xD7) {  // RST $10
@@ -1467,54 +1479,56 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "RETI");
     return std::make_unique<InstructionReturn>(true);
   } else if (opcode == 0xDA) {  // JP C, a16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "JP C, {}", ToHex(value));
     return std::make_unique<InstructionJumpIfCarry>(value, false);
   } else if (opcode == 0xDB) {  // -
-    EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
+    //EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
     // todo hard lock cpu
   } else if (opcode == 0xDC) {  // CALL C, a16
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "CALL C, {}", ToHex(value));
     return std::make_unique<InstructionCallIfCarry>(value, false);
   } else if (opcode == 0xDD) {  // -
-    EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
+    //EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
     // todo hard lock cpu
   } else if (opcode == 0xDE) {  // SBC A, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "SBC A, {}", ToHex(value));
     return std::make_unique<InstructionSubCarryImmediate>(ArithmeticTarget::A, value, 8);
   } else if (opcode == 0xDF) {   // RST $18
     EMIT_INSTRUCTION(pc_begin, "RST $18");
     return std::make_unique<InstructionRestart>(0x0018);
   } else if (opcode == 0xE0) {  // LDH [a8], A
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LDH [{}], A", ToHex(value));
     return std::make_unique<InstructionLDH1>(value, ArithmeticTarget::A);
   } else if (opcode == 0xE1) {  // POP HL
     EMIT_INSTRUCTION(pc_begin, "POP HL");
     return std::make_unique<InstructionPop>(ArithmeticTarget::HL);
   } else if (opcode == 0xE2) {  // LD [C], A
-    EMIT_INSTRUCTION(pc_begin, "LD [C], A");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::C, LoadOperandType::AS_ADDRESS, ArithmeticTarget::A, LoadOperandType::REGISTER, 8);
+    EMIT_INSTRUCTION(pc_begin, "LD [$FF00 + C], A");
+    u8 value = registers.Get(ArithmeticTarget::C);
+    return std::make_unique<InstructionLDH3>(value);
+    //return std::make_unique<InstructionLoad>(ArithmeticTarget::C, LoadOperandType::AS_ADDRESS, ArithmeticTarget::A, LoadOperandType::REGISTER, 8);
   } else if (opcode == 0xE3) {  // -
-    EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
+    //EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
     // todo hard lock cpu
   } else if (opcode == 0xE4) {  // -
-    EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
+    //EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
     // todo hard lock cpu
   } else if (opcode == 0xE5) {  // PUSH HL
     EMIT_INSTRUCTION(pc_begin, "PUSH HL");
     return std::make_unique<InstructionPush>(ArithmeticTarget::HL);
   } else if (opcode == 0xE6) {  // AND A, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "AND A, {}", ToHex(value));
     return std::make_unique<InstructionAndImmediate>(ArithmeticTarget::A, value, 8);
   } else if (opcode == 0xE7) {  // RST $20
     EMIT_INSTRUCTION(pc_begin, "RST $20");
     return std::make_unique<InstructionRestart>(0x0020);
   } else if (opcode == 0xE8) {  // ADD SP, e8
-    s8 value = AsSigned(cpu.Fetch8());
+    s8 value = AsSigned(Fetch(registers, bus));
     EMIT_INSTRUCTION(pc_begin, "ADD SP, {}", ToHex(value));
     return std::make_unique<InstructionAddSPImmediate>(value);
   } else if (opcode == 0xE9) {  // JP HL
@@ -1523,73 +1537,75 @@ std::unique_ptr<Instruction> Fetch(CPU& cpu, Registers& registers, MemoryBus& bu
     EMIT_INSTRUCTION(pc_begin, "JP HL");
     return std::make_unique<InstructionJump>(value);
   } else if (opcode == 0xEA) {  // LD [a16], A
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD [{}], A", ToHex(value));
-    return std::make_unique<InstructionLoadToAddress>(value, ArithmeticTarget::A, false, 16);
+    return std::make_unique<InstructionLoadToAddress>(value, ArithmeticTarget::A, 16);
   } else if (opcode == 0xEB) {  // -
-    EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
+    //EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
     // todo hard lock cpu
   } else if (opcode == 0xEC) {  // -
-    EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
+    //EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
     // todo hard lock cpu
   } else if (opcode == 0xED) {  // -
-    EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
+    //EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
     // todo hard lock cpu
   } else if (opcode == 0xEE) {  // XOR A, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "XOR A, {}", ToHex(value));
     return std::make_unique<InstructionXORImmediate>(ArithmeticTarget::A, value, 8);
   } else if (opcode == 0xEF) {   // RST $28
     EMIT_INSTRUCTION(pc_begin, "RST $28");
     return std::make_unique<InstructionRestart>(0x0028);
   } else if (opcode == 0xF0) {  // LDH A, [a8]
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LDH A, [{}]", ToHex(value));
     return std::make_unique<InstructionLDH2>(ArithmeticTarget::A, value);
   } else if (opcode == 0xF1) {  // POP AF
     EMIT_INSTRUCTION(pc_begin, "POP AF");
     return std::make_unique<InstructionPopAF>();
   } else if (opcode == 0xF2) {  // LD A, [C]
-    EMIT_INSTRUCTION(pc_begin, "LD A, [C]");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::C, LoadOperandType::AS_ADDRESS, 8);
+    EMIT_INSTRUCTION(pc_begin, "LD A, [$FF00 + C]");
+    u16 value = registers.Get(ArithmeticTarget::C);
+    return std::make_unique<InstructionLDH4>(value);
+    //return std::make_unique<InstructionLoad>(ArithmeticTarget::A, LoadOperandType::REGISTER, ArithmeticTarget::C, LoadOperandType::AS_ADDRESS, 8);
   } else if (opcode == 0xF3) {  // DI
     EMIT_INSTRUCTION(pc_begin, "DI");
     return std::make_unique<InstructionDisableInterrupt>();
   } else if (opcode == 0xF4) {  // -
-    EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
+    //EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
     // todo hard lock cpu
   } else if (opcode == 0xF5) {  // PUSH AF
     EMIT_INSTRUCTION(pc_begin, "PUSH AF");
     return std::make_unique<InstructionPushAF>();
   } else if (opcode == 0xF6) {  // OR A, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "OR A, {}", ToHex(value));
     return std::make_unique<InstructionOrImmediate>(ArithmeticTarget::A, value, 8);
   } else if (opcode == 0xF7) {  // RST $30
     EMIT_INSTRUCTION(pc_begin, "RST $30");
     return std::make_unique<InstructionRestart>(0x0030);
   } else if (opcode == 0xF8) {  // LD HL, SP + e8
-    s8 value = AsSigned(cpu.Fetch8());
+    s8 value = AsSigned(Fetch(registers, bus));
     EMIT_INSTRUCTION(pc_begin, "LD HL, SP + {}", ToHex(value));
     return std::make_unique<InstructionLoadHLSPImmediate>(value);
   } else if (opcode == 0xF9) {  // LD SP, HL
     EMIT_INSTRUCTION(pc_begin, "LD SP, HL");
-    return std::make_unique<InstructionLoad>(ArithmeticTarget::SP, ArithmeticTarget::HL, 8);
+    return std::make_unique<InstructionLoadRegisterToRegister>(ArithmeticTarget::SP, ArithmeticTarget::HL, 8);
   } else if (opcode == 0xFA) {  // LD A, [a16]
-    u16 value = cpu.Fetch16();
+    u16 value = FetchWord(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "LD A, [{}]", ToHex(value));
     return std::make_unique<InstructionLoadImmediateAddress>(ArithmeticTarget::A, value, 16);
   } else if (opcode == 0xFB) {  // EI
     EMIT_INSTRUCTION(pc_begin, "EI");
     return std::make_unique<InstructionEnableInterrupt>();
   } else if (opcode == 0xFC) {  // -
-    EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
+    //EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
     // todo hard lock cpu
   } else if (opcode == 0xFD) {  // -
-    EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
+    //EMIT_INSTRUCTION(pc_begin, "INVALID INSTRUCTION");
     // todo hard lock cpu
   } else if (opcode == 0xFE) {  // CP A, n8
-    u8 value = cpu.Fetch8();
+    u8 value = Fetch(registers, bus);
     EMIT_INSTRUCTION(pc_begin, "CP A, {}", ToHex(value));
     return std::make_unique<InstructionCompareImmediate>(ArithmeticTarget::A, value, 8);
   } else if (opcode == 0xFF) {   // RST $38

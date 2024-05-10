@@ -9,24 +9,31 @@ bool is_16bit_register(ArithmeticTarget target) {
 void Registers::Set(ArithmeticTarget target, u16 v) {
   switch (target) {
     case ArithmeticTarget::A:
+      assert(v <= 0xFF);
       a = v & 0xFF;
       break;
     case ArithmeticTarget::B:
+      assert(v <= 0xFF);
       bc.f.hi = v & 0xFF;
       break;
     case ArithmeticTarget::C:
+      assert(v <= 0xFF);
       bc.f.lo = v & 0xFF;
       break;
     case ArithmeticTarget::D:
+      assert(v <= 0xFF);
       de.f.hi = v & 0xFF;
       break;
     case ArithmeticTarget::E:
+      assert(v <= 0xFF);
       de.f.lo = v & 0xFF;
       break;
     case ArithmeticTarget::H:
+      assert(v <= 0xFF);
       hl.f.hi = v & 0xFF;
       break;
     case ArithmeticTarget::L:
+      assert(v <= 0xFF);
       hl.f.lo = v & 0xFF;
       break;
     case ArithmeticTarget::BC:

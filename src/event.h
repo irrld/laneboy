@@ -3,15 +3,18 @@
 
 #include "util.h"
 #include <functional>
+#include <list>
 
 enum EventType {
+  EventTypeCPUModeChange,
+  EventTypeLCDControlChange,
   EventTypeLast
 };
 
 #define BIT(x) (1 << x)
 
 enum EventCategory {
-  EventCategoryMemory = BIT(0)
+  EventCategoryCPU = BIT(0)
 };
 
 #undef BIT
@@ -66,3 +69,23 @@ class EventDispatcher {
   virtual int GetCategoryFlags() const override { \
     return category;                              \
   }
+
+class EventBus {
+ public:
+  EventBus() = default;
+  EventBus(const EventBus&) = delete;
+  void Subscribe(const std::function<void(Event&)> callback) {
+    callbacks_.push_front(callback);
+  }
+
+  void Emit(Event& event) {
+    for (auto& item : callbacks_) {
+      item(event);
+      if (event.handled_) {
+        break;
+      }
+    }
+  }
+ private:
+  std::list<std::function<void(Event&)>> callbacks_;
+};

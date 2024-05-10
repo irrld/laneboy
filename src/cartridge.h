@@ -7,8 +7,8 @@
 enum class CartridgeType {
   ROM_ONLY = 0x00,
   MBC1 = 0x01,
-  MBC2_RAM = 0x02,
-  MBC2_RAM_BATTERY = 0x03,
+  MBC1_RAM = 0x02,
+  MBC1_RAM_BATTERY = 0x03,
   MBC2 = 0x05,
   MBC2_BATTERY = 0x06,
   ROM_RAM = 0x08, // not used
@@ -35,19 +35,19 @@ enum class CartridgeType {
   HUC1_RAM_BATTERY = 0xFF,
 };
 
-enum RomSize {
-  kRom32KB = 0x00,
-  kRom64KB = 0x01,
-  kRom128KB = 0x02,
-  kRom256KB = 0x03,
-  kRom512KB = 0x04,
-  kRom1MB = 0x05,
-  kRom2MB = 0x06,
-  kRom4MB = 0x07,
-  kRom8MB = 0x08
+enum ROMSize {
+  kRom32KB = 0x00, // 2 banks, no switching
+  kRom64KB = 0x01, // 4 banks, 1 is fixed, 3 switching
+  kRom128KB = 0x02, // 8 banks, 1 is fixed, 7 switching
+  kRom256KB = 0x03, // 16 banks, 1 is fixed, 15 switching
+  kRom512KB = 0x04, // 32 banks, 1 is fixed, 31 switching
+  kRom1MB = 0x05, // 64 banks, 1 is fixed, 63 switching
+  kRom2MB = 0x06, // 128 banks, 1 is fixed, 127 switching
+  kRom4MB = 0x07, // 256 banks, 1 is fixed, 255 switching
+  kRom8MB = 0x08 // 512 banks, 1 is fixed, 511 switching
 };
 
-enum RamSize {
+enum RAMSize {
   kNoRAM = 0x00,
   // 0x01 is unused, potentially 2KiB
   k1Bank = 0x02,
@@ -55,6 +55,15 @@ enum RamSize {
   k16Banks = 0x04, // 16 banks of 8KiB each
   k8Banks = 0x05 // 8 banks of 8KiB each
 };
+
+enum class CartridgeCompatibility {
+  Both,
+  OnlyGBC,
+  OnlyDMG
+};
+
+u32 DetermineROMBankNumber(ROMSize rom_size);
+u32 DetermineRAMBankNumber(RAMSize rom_size);
 
 class Cartridge {
  public:
@@ -65,12 +74,27 @@ class Cartridge {
   bool is_valid() const { return is_valid_;}
 
   void InitBus(MemoryBus& bus);
+
+  CartridgeCompatibility compatibility() const { return compatibility_; }
  private:
   std::vector<u8> data_;
   bool is_valid_;
 
-  RomSize rom_size_;
-  u16 rom_bank_num_;
-  RamSize ram_size_;
-  u16 ram_bank_num_;
+  MemoryBus* bus_;
+  ROMSize rom_size_;
+  u32 rom_bank_num_;
+  RAMSize ram_size_;
+  u32 ram_bank_num_;
+  CartridgeCompatibility compatibility_;
+  CartridgeType type_;
+
+  u8 rom_bank_select_;
+  std::vector<std::array<u8, CARTRIDGE_ROM_SIZE>> rom_banks_;
+  std::unique_ptr<SwitchingArrayMemoryDevice<CARTRIDGE_ROM_SIZE>> rom_bank_00_md_;
+  std::unique_ptr<SwitchingArrayMemoryDevice<CARTRIDGE_ROM_SIZE>> rom_bank_01_md_;
+
+  u8 ram_bank_select_;
+  std::vector<std::array<u8, CARTRIDGE_RAM_SIZE>> ram_banks_;
+  std::unique_ptr<SwitchingArrayMemoryDevice<CARTRIDGE_RAM_SIZE>> ram_bank_md_;
+
 };

@@ -24,6 +24,7 @@ class WindowGLFW : public Window {
     window_ = glfwCreateWindow(properties.width, properties.height, properties.title.c_str(), nullptr, nullptr);
     glfwSetWindowSizeLimits(window_, properties.width, properties.height, properties.width, properties.height);
     glfwMakeContextCurrent(window_);
+    glfwSwapInterval(0);
 
     int width, height;
     int framebuffer_width, framebuffer_height;
@@ -38,6 +39,13 @@ class WindowGLFW : public Window {
     ImGuiIO& io = ImGui::GetIO(); (void)io;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+    //io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    io.ConfigFlags |= ImGuiConfigFlags_ViewportsEnable;
+    if (io.ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+      auto& style = ImGui::GetStyle();
+      style.WindowRounding = 0.0f;
+      style.Colors[ImGuiCol_WindowBg].w = 1.0f;
+    }
 
     io.DisplaySize = ImVec2((float)width, (float)height);
     io.DisplayFramebufferScale = ImVec2((float)framebuffer_width / width, (float)framebuffer_height / height);
@@ -77,7 +85,14 @@ class WindowGLFW : public Window {
   void EndFrame() override {
     ImGui::Render();
     ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
+    // Update and Render additional Platform Windows
+    if (ImGui::GetIO().ConfigFlags & ImGuiConfigFlags_ViewportsEnable) {
+      GLFWwindow* backup_current_context = glfwGetCurrentContext();
+      ImGui::UpdatePlatformWindows();
+      ImGui::RenderPlatformWindowsDefault();
+      glfwMakeContextCurrent(backup_current_context);
+    }
+    ImGui::EndFrame();
     glfwSwapBuffers(window_);
   }
 

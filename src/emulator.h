@@ -6,11 +6,13 @@
 #include "util.h"
 #include "window.h"
 #include "renderer.h"
+#include "debug.h"
+#include <thread>
 
 
 class Emulator {
  public:
-  using clock = std::chrono::steady_clock;
+  using clock = std::chrono::high_resolution_clock;
 
   Emulator();
 
@@ -20,6 +22,8 @@ class Emulator {
 
  private:
   bool running_ = false;
+  std::string cartridge_path_;
+  std::unique_ptr<EventBus> event_bus_;
   std::unique_ptr<Window> window_;
   std::unique_ptr<Renderer> renderer_;
   std::unique_ptr<Texture> output_;
@@ -32,6 +36,10 @@ class Emulator {
 
   std::chrono::time_point<clock> next_cpu_cycle_;
   std::chrono::time_point<clock> next_ppu_cycle_;
+  std::chrono::time_point<clock> next_window_cycle_;
+
+  std::mutex mutex_;
+  std::unique_ptr<std::thread> emulator_thread_;
 
  private:
   void StepEmulation();
@@ -39,4 +47,12 @@ class Emulator {
 
   void Update();
   void Render();
+
+#ifdef ENABLE_DEBUGGER
+  void RenderDebugger();
+  void RenderRegisters();
+  void RenderMemoryViewer();
+
+  std::vector<std::string> GetRegisters();
+#endif
 };

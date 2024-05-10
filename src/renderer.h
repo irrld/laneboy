@@ -10,9 +10,12 @@ struct Color {
 };
 
 using Colorf = Color<float>;
+using Colori = Color<u8>;
 
 class Texture {
  public:
+  virtual ~Texture() = default;
+
   virtual s32 width() const = 0;
   virtual s32 height() const = 0;
 
@@ -20,7 +23,7 @@ class Texture {
     return data_internal();
   };
 
-  virtual void Draw(s32 x, s32 y) = 0;
+  virtual void Draw(s32 x, s32 y, s32 width, s32 height) = 0;
   virtual void DrawImGui(s32 width, s32 height) = 0;
 
  private:
@@ -36,16 +39,25 @@ class Texture {
 class TextureWrapper {
  public:
   TextureWrapper(Texture& texture);
+  virtual ~TextureWrapper() = default;
 
+  void SetPixel(s32 x, s32 y, Colori color);
+  void Fill(Colori color);
+
+  void Update();
+
+  bool changed() const { return changed_; }
 
  private:
   Texture& texture_;
   std::vector<u8>& data_;
+  bool changed_ = false;
 };
-
 
 class Renderer {
  public:
+  virtual ~Renderer() = default;
+
   virtual void ClearColor(Colorf color) = 0;
 
   virtual std::unique_ptr<Texture> CreateTexture(s32 width, s32 height) = 0;

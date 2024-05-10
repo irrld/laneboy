@@ -21,6 +21,7 @@ bool is_16bit_register(ArithmeticTarget target);
 union Flags {
   u8 v;
   struct {
+    u8 padding : 4;
     bool carry : 1;
     bool half_carry : 1;
     bool subtract : 1;
@@ -40,14 +41,31 @@ union Register {
   } f;
 };
 
+template<typename T, int DebugId>
+class Var {
+ public:
+  Var(T v) : value_(v) {};
+
+  operator T() const {
+    return value_;
+  }
+
+  Var& operator =(const T& new_value) {
+    value_ = new_value;
+    return *this;
+  }
+ private:
+  T value_;
+
+};
 struct Registers {
   u8 a = 0; // a
   Flags flags{0};
   Register bc{0}; // b, c
   Register de{0}; // d, e
   Register hl{0}; // h, l
-  u16 sp = 0;
-  u16 pc = 0;
+  Var<u16, 0> sp = 0;
+  Var<u16, 1> pc = 0;
 
   void Set(ArithmeticTarget target, u16 v);
   u16 Get(ArithmeticTarget target) const;

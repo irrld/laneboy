@@ -29,8 +29,7 @@ class TextureOGL : public Texture {
     return height_;
   }
 
-  void Draw(s32 x, s32 y) override {
-
+  void Draw(s32 x, s32 y, s32 width, s32 height) override {
   }
 
   void DrawImGui(s32 width, s32 height) override {
@@ -60,6 +59,30 @@ class TextureOGL : public Texture {
 
 TextureWrapper::TextureWrapper(Texture& texture) : texture_(texture), data_(texture.data_internal()) {
 
+}
+
+void TextureWrapper::SetPixel(s32 x, s32 y, Colori color) {
+  u64 index = y * texture_.width() * 4 + x * 4; // *4 because every pixel has 4 components
+  data_[index] = color.r;
+  data_[index + 1] = color.g;
+  data_[index + 2] = color.b;
+  data_[index + 3] = color.a;
+  changed_ = true;
+}
+
+void TextureWrapper::Fill(Colori color) {
+  for (int x = 0; x < texture_.width(); ++x) {
+    for (int y = 0; y < texture_.height(); ++y) {
+      SetPixel(x, y, color);
+    }
+  }
+}
+
+void TextureWrapper::Update() {
+  if (changed_) {
+    texture_.UploadData();
+    changed_ = false;
+  }
 }
 
 class RendererOGL : public Renderer {

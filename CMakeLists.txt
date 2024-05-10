@@ -9,6 +9,7 @@ add_executable(gameboy_emu
         src/main.cc
         src/register.cc
         src/memory.cc
+        src/alu.cc
         src/cpu.cc
         src/util.cc
         src/debug.cc
@@ -18,10 +19,15 @@ add_executable(gameboy_emu
         src/emulator.cc
         src/window.cc
         src/renderer.cc
+        src/tinyfiledialogs.c
 )
+include_directories(src)
+target_compile_options(gameboy_emu PRIVATE -frtti)
+#target_compile_options(gameboy_emu PRIVATE -frtti -fsanitize=address)
+#target_link_options(gameboy_emu PRIVATE -fsanitize=address)
 
 set(IMGUI_DIR "vendor/imgui")
-include_directories(src ${IMGUI_DIR})
+include_directories(${IMGUI_DIR})
 file(GLOB IMGUI_SOURCES ${IMGUI_DIR}/*.cpp)
 add_library(imgui
         ${IMGUI_SOURCES}
@@ -34,6 +40,13 @@ target_link_libraries(imgui PUBLIC
         glfw
 )
 
+set(GBIT_DIR "vendor/gbit")
+include_directories(${GBIT_DIR})
+file(GLOB GBIT_SOURCES ${GBIT_DIR}/lib/*.c)
+add_library(gbit
+        ${GBIT_SOURCES}
+)
+
 find_package(fmt CONFIG REQUIRED)
 find_package(OpenGL REQUIRED)
 find_package(GLEW REQUIRED)
@@ -42,4 +55,6 @@ find_package(GLFW3 REQUIRED)
 target_link_libraries(gameboy_emu
         fmt::fmt
         imgui
+        gbit
 )
+
