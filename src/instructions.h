@@ -791,7 +791,7 @@ struct InstructionRestart : Instruction {
       std::cerr << "paused execution because hit a restart that points to itself." << std::endl;
       DEBUGGER_PAUSE_HERE();
     }
-    std::cout << "restart: " << ToHex(Debugger::GetCurrentInstruction()) << std::endl;
+    //std::cout << "restart: " << ToHex(Debugger::GetCurrentInstruction()) << std::endl;
 #endif
     cpu.Push(registers.pc);
     registers.pc = value_;
@@ -1319,7 +1319,7 @@ struct InstructionReturn : Instruction {
     EMIT_RET(registers.pc, sp, return_address, from_interrupt_);
     registers.pc = return_address;
     if (from_interrupt_) {
-      cpu.SetInterruptMasterEnable(true, true);
+      cpu.SetInterruptMasterEnable(true);
     }
     return 16;
   }

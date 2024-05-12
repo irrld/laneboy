@@ -28,6 +28,7 @@ class Emulator {
   std::unique_ptr<Renderer> renderer_;
   std::unique_ptr<Texture> output_;
   std::unique_ptr<TextureWrapper> output_wrapper_;
+  bool update_image_ = false;
 
   std::unique_ptr<MemoryBus> bus_;
   std::unique_ptr<CPU> cpu_;
@@ -35,10 +36,8 @@ class Emulator {
 
 
   std::chrono::time_point<clock> next_cpu_cycle_;
-  std::chrono::time_point<clock> next_ppu_cycle_;
   std::chrono::time_point<clock> next_window_cycle_;
 
-  std::mutex mutex_;
   std::unique_ptr<std::thread> emulator_thread_;
 
  private:

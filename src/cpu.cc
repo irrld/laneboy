@@ -275,7 +275,7 @@ void CPU::Stop() {
 
 void CPU::Halt() {
   halted_ = true;
-  std::cout << "halted" << std::endl;
+  //std::cout << "halted" << std::endl;
 }
 
 void CPU::Step() {
@@ -320,7 +320,7 @@ void CPU::HandleInterrupts() {
       // changing the PC consumes 1 last M-cycle
       cycles_consumed_ += 4 * 1; // 4 T-cycles
       registers_.pc = 0x0040 + (i * 8);
-      std::cout << "jump to interrupt: " << ToHex(registers_.pc) << std::endl;
+      //std::cout << "jump to interrupt: " << ToHex(registers_.pc) << std::endl;
       break;
     }
   }
@@ -403,10 +403,10 @@ void CPU::SetInterruptMasterEnable(bool enable, bool immediate) {
   if (immediate) {
     ime_ = enable;
     ime_pending_ = ime_;
-    std::cout << "interrupt master enable: " << BoolToStr(enable) << std::endl;
+    //std::cout << "interrupt master enable: " << BoolToStr(enable) << std::endl;
   } else {
     ime_pending_ = enable;
-    std::cout << "interrupt master enable pending: " << BoolToStr(enable) << std::endl;
+    //std::cout << "interrupt master enable pending: " << BoolToStr(enable) << std::endl;
   }
 }
 
@@ -425,6 +425,7 @@ void CPU::Push(u16 value) {
   }
 #endif
   bus_.WriteWord(registers_.sp, value);
+  //std::cout << "push: " << ToHex(registers_.sp) << " <- " << ToHex(value) << std::endl;
 }
 
 u16 CPU::Pop() {
@@ -438,11 +439,12 @@ u16 CPU::Pop() {
 #endif
   u16 value = bus_.ReadWord(registers_.sp);
   registers_.sp = registers_.sp + 2;
+  //std::cout << "pop: " << ToHex(registers_.sp) << " -> " << ToHex(value) << std::endl;
   return value;
 }
 
 void CPU::StartDMA(u8 value) {
-  std::cout << "started dma" << std::endl;
+  //std::cout << "started dma" << std::endl;
   dma_ = value;
   dma_current_ = 0;
   oam_md_->DisableAccess(kMemoryAccessBoth);
@@ -453,14 +455,14 @@ void CPU::ProcessDMA() {
     return;
   }
   int runs = cycles_consumed_ / 4;
-  while (runs > 0 && dma_current_ < 0xA0) {
+  while (runs > 0 && dma_current_ <= 0xA0) {
     // todo other cgb dma stuff
     oam_[dma_current_] = bus_.Read(dma_ * 0x0100 + dma_current_);
     dma_current_++;
     runs--;
   }
   if (dma_current_ >= 0xA0) {
-    std::cout << "finished dma" << std::endl;
+    //std::cout << "finished dma" << std::endl;
     dma_ = 0;
     oam_md_->EnableAccess(kMemoryAccessBoth);
   }

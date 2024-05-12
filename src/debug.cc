@@ -136,19 +136,19 @@ void OnMemRead(MemoryBus& bus, u16 pos, u8 value) {
 }
 
 void OnCall(u16 pc, u16 sp, u16 value) {
-  std::cout << "call: " << ToHex(value) << ", return address: " << ToHex(current_) << ", sp: " << ToHex(sp) << std::endl;
+  //std::cout << "call: " << ToHex(value) << ", return address: " << ToHex(current_) << ", sp: " << ToHex(sp) << std::endl;
 }
 
 void OnReturn(u16 pc, u16 sp, u16 value, bool from_interrupt) {
-  std::cout << "return: " << ToHex(value) << ", current address: " << ToHex(current_) << ", sp: " << ToHex(sp) << ", int: " << BoolToStr(from_interrupt) << std::endl;
+  //std::cout << "return: " << ToHex(value) << ", current address: " << ToHex(current_) << ", sp: " << ToHex(sp) << ", int: " << BoolToStr(from_interrupt) << std::endl;
 }
 
 void OnJump(u16 pc, u16 sp, u16 value) {
-  std::cout << "jump: " << ToHex(value) << " current address: " << ToHex(pc) << std::endl;
+  //std::cout << "jump: " << ToHex(value) << " current address: " << ToHex(pc) << std::endl;
 }
 
 void OnJumpRelative(u16 pc, u16 sp, u16 value) {
- // std::cout << "jump relative: " << ToHex(value) << " current address: " << ToHex(pc) << std::endl;
+  //std::cout << "jump relative: " << ToHex(value) << " current address: " << ToHex(pc) << std::endl;
 }
 
 void OnBankChange(MemoryBus& bus) {

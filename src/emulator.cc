@@ -48,7 +48,6 @@ bool Emulator::LoadCartridge(const std::string& file_path) {
     return false;
   }
   next_cpu_cycle_ = clock::now();
-  next_ppu_cycle_ = clock::now();
 
   bus_ = std::make_unique<MemoryBus>();
   cpu_ = std::make_unique<CPU>(*event_bus_, *bus_);
@@ -84,22 +83,19 @@ void Emulator::StepEmulation() {
       cpu_->ProcessDMA();
       cpu_->HandleInterrupts();
     } else {
-      cpu_->cycles_consumed_ = 1;
+      cpu_->cycles_consumed_ = 4;
     }
     cpu_->UpdateTimers(cpu_->cycles_consumed_);
-    // todo calculate delta time and subtract
+    for (int i = 0; i < cpu_->cycles_consumed_; ++i) {
+      ppu_->Step();
+      if (ppu_->frame_complete_) {
+        update_image_ = true;
+      }
+    }
     next_cpu_cycle_ += std::chrono::nanoseconds(static_cast<long>(1'000'000'000 / cpu_->clock_speed_)) * cpu_->cycles_consumed_ * 4;
   }
-  if (now >= next_ppu_cycle_) {
-    std::scoped_lock lock{mutex_};
-    ppu_->Step();
-    // todo calculate delta time and subtract
-    next_ppu_cycle_ += std::chrono::nanoseconds(static_cast<long>(1'000'000'000 / ppu_->clock_speed_)) * ppu_->cycles_consumed_ * 4;
-  }
   auto end = clock::now();
-  auto took = std::chrono::duration_cast<std::chrono::microseconds>(end - now);
-  next_ppu_cycle_ -= took;
-  next_cpu_cycle_ -= took;
+  next_cpu_cycle_ -= std::chrono::duration_cast<std::chrono::microseconds>(end - now);
 }
 
 void Emulator::Run() {
@@ -125,9 +121,9 @@ void Emulator::Run() {
 }
 
 void Emulator::Update() {
-  if (ppu_ && ppu_->frames_rendered_ != 0) {
-    std::scoped_lock lock{mutex_};
+  if (update_image_ && ppu_ && ppu_->frames_rendered_ != 0) {
     output_wrapper_->Update();
+    update_image_ = false;
   }
 }
 

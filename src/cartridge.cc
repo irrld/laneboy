@@ -71,17 +71,17 @@ Cartridge::Cartridge(const std::string& path) {
   ram_bank_select_ = 0;
   ram_bank_md_ = std::make_unique<SwitchingArrayMemoryDevice<CARTRIDGE_RAM_SIZE>>(CARTRIDGE_RAM_START_ADDRESS, &ram_banks_[0], kMemoryAccessBoth);
   rom_bank_00_md_ = std::make_unique<SwitchingArrayWithHandlerMemoryDevice<CARTRIDGE_ROM_SIZE>>(CARTRIDGE_ROM_00_START_ADDRESS, &rom_banks_[0], [this](u16 address,u8 previous, u8 value, bool failed) -> bool {
-    std::cout << "written rom bank 00: " << ToHex(address) << ", " << ToHex(value) << std::endl;
+    //std::cout << "written rom bank 00: " << ToHex(address) << ", " << ToHex(value) << std::endl;
     if (address <= 0x1FFF) { // RAM Enable
       if ((value & 0x0a) == 0x0a) {
         ram_bank_md_->EnableAccess(kMemoryAccessBoth);
-        std::cout << "ram enable" << std::endl;
+        //std::cout << "ram enable" << std::endl;
       } else {
         ram_bank_md_->DisableAccess(kMemoryAccessBoth);
-        std::cout << "ram disable" << std::endl;
+        //std::cout << "ram disable" << std::endl;
       }
     } else if (address >= 0x2000 && address <= 0x3FFF) { // ROM Bank Number
-      std::cout << "written " << ToHex(value) << " to rom select." << std::endl;
+      //std::cout << "written " << ToHex(value) << " to rom select." << std::endl;
       u16 new_value = (rom_bank_select_ & 0b11100000) + ((value & 0b00011111) & (rom_bank_num_ - 1));
       if (new_value == 0) {
         new_value = 1;
@@ -91,19 +91,19 @@ Cartridge::Cartridge(const std::string& path) {
       }
       rom_bank_select_ = new_value;
       rom_bank_01_md_->Switch(&rom_banks_[rom_bank_select_]);
-      std::cout << "rom bank select: " << ToHex(rom_bank_select_) << std::endl;
+      //std::cout << "rom bank select: " << ToHex(rom_bank_select_) << std::endl;
       EMIT_BANK_CHANGE(*bus_);
     }
     return previous;
   }, kMemoryAccessRead);
   rom_bank_select_ = 1;
   rom_bank_01_md_ = std::make_unique<SwitchingArrayWithHandlerMemoryDevice<CARTRIDGE_ROM_SIZE>>(CARTRIDGE_ROM_01_START_ADDRESS, &rom_banks_[rom_bank_select_], [this](u16 address,u8 previous, u8 value, bool failed) -> bool {
-    std::cout << "written rom bank 01: " << ToHex(address) << ", " << ToHex(value) << std::endl;
+    //std::cout << "written rom bank 01: " << ToHex(address) << ", " << ToHex(value) << std::endl;
     if (address >= 0xA000 && address <= 0xBFFF) {
-      std::cout << "written " << ToHex(value) << " to ram select." << std::endl;
+      //std::cout << "written " << ToHex(value) << " to ram select." << std::endl;
       ram_bank_select_ = value & 0x03;
       ram_bank_md_->Switch(&ram_banks_[ram_bank_select_]);
-      std::cout << "ram bank select: " << ToHex(ram_bank_select_) << std::endl;
+      //std::cout << "ram bank select: " << ToHex(ram_bank_select_) << std::endl;
       EMIT_BANK_CHANGE(*bus_);
     } else if (address >= 0x4000 && address <= 0x5FFF) {
     } else if (address >= 0x6000 && address <= 0x7FFF) {

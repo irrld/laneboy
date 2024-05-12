@@ -1,6 +1,7 @@
 #include "ppu.h"
 
 PPU::PPU(EventBus& event_bus, CPU& cpu, MemoryBus& bus, TextureWrapper& output_wrapper) : event_bus_(event_bus), cpu_(cpu), bus_(bus), output_wrapper_(output_wrapper) {
+  SetClockSpeed(BASE_PPU_CLOCK_SPEED);
   event_bus_.Subscribe(BIND_FN(OnEvent));
 }
 
@@ -13,6 +14,7 @@ void PPU::Step() {
     was_enabled_ = cpu_.lcdc_.bits.lcd_enable;
     frames_rendered_ = 0;
     output_wrapper_.Fill({255, 255, 255, 255});
+    std::cout << "display enable changed: " << BoolToStr(was_enabled_) << std::endl;
   }
   if (!cpu_.lcdc_.bits.lcd_enable) {
     cycles_consumed_ = 1;
