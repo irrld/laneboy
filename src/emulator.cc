@@ -53,7 +53,7 @@ bool Emulator::LoadCartridge(const std::string& file_path) {
   cpu_ = std::make_unique<CPU>(*event_bus_, *bus_);
 
   // first load the rom, this will have priority over the cartridge memory
-  cpu_->LoadBootRom(LoadBin("rom/dmg_boot.bin"));
+  cpu_->LoadBootRom(LoadBin("rom/fast_boot.bin"));
 
   ppu_ = std::make_unique<PPU>(*event_bus_, *cpu_, *bus_, *output_wrapper_);
 
@@ -86,6 +86,7 @@ void Emulator::StepEmulation() {
       cpu_->cycles_consumed_ = 4;
     }
     cpu_->UpdateTimers(cpu_->cycles_consumed_);
+    // todo, PPU it should run at /2 cycle count in double speed mode!
     for (int i = 0; i < cpu_->cycles_consumed_; ++i) {
       ppu_->Step();
       if (ppu_->frame_complete_) {
