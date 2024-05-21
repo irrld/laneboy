@@ -1196,7 +1196,7 @@ struct InstructionCall : Instruction {
   explicit InstructionCall(u16 value) : Instruction(InstructionType::CALL), value_(value) {}
 
   int Execute(CPU& cpu, ALU& alu, Registers& registers, MemoryBus& bus) override {
-    EMIT_CALL(registers.pc, registers.sp, value_);
+    EMIT_CALL(registers.pc, registers.sp, value_, false);
     cpu.Push(registers.pc);
     registers.pc = value_;
     return 24;
@@ -1211,7 +1211,7 @@ struct InstructionCallIfZero : Instruction {
 
   int Execute(CPU& cpu, ALU& alu, Registers& registers, MemoryBus& bus) override {
     if (registers.flags.f.zero != is_not_) {
-      EMIT_CALL(registers.pc, registers.sp, value_);
+      EMIT_CALL(registers.pc, registers.sp, value_, false);
       cpu.Push(registers.pc);
       registers.pc = value_;
       return 24;
@@ -1228,7 +1228,7 @@ struct InstructionCallIfCarry : Instruction {
 
   int Execute(CPU& cpu, ALU& alu, Registers& registers, MemoryBus& bus) override {
     if (registers.flags.f.carry != is_not_) {
-      EMIT_CALL(registers.pc, registers.sp, value_);
+      EMIT_CALL(registers.pc, registers.sp, value_, false);
       cpu.Push(registers.pc);
       registers.pc = value_;
       return 24;

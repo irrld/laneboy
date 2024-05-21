@@ -194,7 +194,7 @@ CPU::CPU(EventBus& event_bus, MemoryBus& bus) : event_bus_(event_bus), bus_(bus)
   }, kMemoryAccessBoth);
   bus_.AddDevice(LCD_STAT_ADDRESS, lcds_md_.get());
 
-  bgp_md_ = std::make_unique<FixedPointerMemoryDevice<1, MonochromePalette>>(&bgp_, kMemoryAccessBoth);
+  bgp_md_ = std::make_unique<FixedPointerMemoryDevice<1, u8>>(&bgp_, kMemoryAccessBoth);
   bus_.AddDevice(LCD_BGP_ADDRESS, bgp_md_.get());
 
   bcps_ = 0;
@@ -259,7 +259,6 @@ CPU::CPU(EventBus& event_bus, MemoryBus& bus) : event_bus_(event_bus), bus_(bus)
   key1_ = 0;
   key1_md_ = std::make_unique<FixedPointerMemoryDevice<1, u8>>(&key1_, kMemoryAccessBoth);
   bus_.AddDevice(KEY1_ADDRESS, key1_md_.get());
-
 }
 
 void CPU::Stop() {
@@ -310,16 +309,20 @@ void CPU::HandleInterrupts() {
       }
       SetInterruptMasterEnable(false, true);
       ClearInterrupt(type);
+
+      u16 address = 0x0040 + (i * 8);
       // cpu waits wait 2 M-cycles
       cycles_consumed_ += 4 * 2; // 8 T-cycles
-      // todo we don't actually wait here, it would be better to make the cpu execute
-      // two nop instructions before doing anything (in CPU::Step)
-      Push(registers_.pc);
+
       // pushing the PC to stack consumes 2 M-cycles
+      EMIT_CALL(registers_.pc, registers_.sp, address, true);
+      Push(registers_.pc);
       cycles_consumed_ += 4 * 2; // 8 T-cycles
+
       // changing the PC consumes 1 last M-cycle
+      registers_.pc = address;
       cycles_consumed_ += 4 * 1; // 4 T-cycles
-      registers_.pc = 0x0040 + (i * 8);
+
       //std::cout << "jump to interrupt: " << ToHex(registers_.pc) << std::endl;
       break;
     }
@@ -447,7 +450,7 @@ void CPU::StartDMA(u8 value) {
   //std::cout << "started dma" << std::endl;
   dma_ = value;
   dma_current_ = 0;
-  oam_md_->DisableAccess(kMemoryAccessBoth);
+  //oam_md_->DisableAccess(kMemoryAccessBoth);
 }
 
 void CPU::ProcessDMA() {
@@ -455,16 +458,16 @@ void CPU::ProcessDMA() {
     return;
   }
   int runs = cycles_consumed_ / 4;
-  while (runs > 0 && dma_current_ <= 0xA0) {
-    // todo other cgb dma stuff
-    oam_[dma_current_] = bus_.Read(dma_ * 0x0100 + dma_current_);
+  while (runs > 0 && dma_current_ < 0xA0) {
+    oam_[dma_current_] = bus_.Read((dma_ * 0x0100) + dma_current_);
     dma_current_++;
     runs--;
   }
   if (dma_current_ >= 0xA0) {
     //std::cout << "finished dma" << std::endl;
     dma_ = 0;
-    oam_md_->EnableAccess(kMemoryAccessBoth);
+    dma_current_ = 0;
+    //oam_md_->EnableAccess(kMemoryAccessBoth);
   }
 }
 

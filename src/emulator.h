@@ -27,7 +27,9 @@ class Emulator {
   std::unique_ptr<Window> window_;
   std::unique_ptr<Renderer> renderer_;
   std::unique_ptr<Texture> output_;
+  std::unique_ptr<Texture> vram_output_;
   std::unique_ptr<TextureWrapper> output_wrapper_;
+  std::unique_ptr<TextureWrapper> vram_output_wrapper_;
   bool update_image_ = false;
 
   std::unique_ptr<MemoryBus> bus_;
@@ -51,6 +53,8 @@ class Emulator {
   void RenderDebugger();
   void RenderRegisters();
   void RenderMemoryViewer();
+  void RenderCallStack();
+  void RenderVRAM();
 
   std::vector<std::string> GetRegisters();
 #endif

@@ -12,6 +12,8 @@ struct Color {
 using Colorf = Color<float>;
 using Colori = Color<u8>;
 
+Colori ColorFromHex(u32 value);
+
 class Texture {
  public:
   virtual ~Texture() = default;

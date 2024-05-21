@@ -196,17 +196,15 @@ struct Joypad {
   bool select_buttons : 1; // when set, lower nibble is set to start-select-b-a
 };
 
+enum ColorMode {
+  kColorModeBackground,
+  kColorModeObjectPalette0,
+  kColorModeObjectPalette1,
+};
 
 struct Pixel {
   u8 color : 2;
-  u8 palette : 3;
-  u8 bg_priority : 1;
-  u8 sprite : 1;
-  u8 padding : 1;
-};
-
-struct TileData {
-  Pixel pixels[8][8];
+  ColorMode mode : 2;
 };
 
 u8 ProcessTileData(u16 data, u8 index);
@@ -268,23 +266,6 @@ union ObjectAttributeFlags {
     bool y_flip : 1; // 0 = Normal, 1 = Vertically Flipped
     bool priority : 1; // 0 = No, 1 = BG and Window colors 1-3 are drawn over this object
   } bits;
-};
-
-enum MonochromeColor : u8 {
-  kMonochromeColorWhite = 0,
-  kMonochromeColorLightGray = 1,
-  kMonochromeColorDarkGray = 2,
-  kMonochromeColorBlack = 3
-};
-
-union MonochromePalette {
-  u8 value;
-  struct {
-    MonochromeColor id0 : 2;
-    MonochromeColor id1 : 2;
-    MonochromeColor id2 : 2;
-    MonochromeColor id3 : 2;
-  } colors;
 };
 
 template<typename T>

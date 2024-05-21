@@ -9,42 +9,53 @@
 #ifdef ENABLE_DEBUGGER
 
 namespace Debugger {
+struct CallStackEntry {
+  u16 call_address_;
+  u16 return_address_;
+  u16 instruction_address_;
+  bool is_interrupt_;
+};
 
-  void Reset();
-  void Init(MemoryBus& bus);
+void Reset();
+void Init(MemoryBus& bus);
 
-  void OnEmitInstruction(MemoryBus& bus, u16 pc, u16 n, std::string name);
+void OnEmitInstruction(MemoryBus& bus, u16 pc, u16 n, std::string name);
 
-  void OnPreExecInstruction();
-  void OnPostExecInstruction();
-  void OnMemWrite(MemoryBus& bus, u16 pos, u8 oldvalue, u8 value, u8 newvalue);
-  void OnMemRead(MemoryBus& bus, u16 pos, u8 value);
-  void OnRomUnmap(MemoryBus& bus);
-  void OnCall(u16 pc, u16 sp, u16 value);
-  void OnReturn(u16 pc, u16 sp, u16 value, bool from_interrupt);
-  void OnJump(u16 pc, u16 sp, u16 value);
-  void OnJumpRelative(u16 pc, u16 sp, u16 value);
-  void OnBankChange(MemoryBus& bus);
+void OnPreExecInstruction();
+void OnPostExecInstruction();
+void OnMemWrite(MemoryBus& bus, u16 pos, u8 oldvalue, u8 value, u8 newvalue);
+void OnMemRead(MemoryBus& bus, u16 pos, u8 value);
+void OnRomUnmap(MemoryBus& bus);
+void OnCall(u16 pc, u16 sp, u16 value, bool is_interrupt);
+void OnReturn(u16 pc, u16 sp, u16 value, bool from_interrupt);
+void OnJump(u16 pc, u16 sp, u16 value);
+void OnJumpRelative(u16 pc, u16 sp, u16 value);
+void OnBankChange(MemoryBus& bus);
 
-  const std::string& GetInstructionAt(u16 address);
+const std::string& GetInstructionAt(u16 address);
 
-  u16 GetCurrentInstruction();
-  u8 GetInstructionLengthAt(u16 address);
+u16 GetCurrentInstruction();
+u8 GetInstructionLengthAt(u16 address);
 
-  bool HasBreakpoint(u16 address);
+bool HasBreakpoint(u16 address);
 
-  void SetBreakpoint(u16 address, bool enabled);
+void SetBreakpoint(u16 address, bool enabled);
 
-  bool IsFrozen();
-  void Step();
-  void Pause();
-  void PauseHere();
-  void Continue();
+bool IsFrozen();
+void Step();
+void Next();
+void Out();
+void Pause();
+void PauseHere();
+void Continue();
 
-  u8 GetPreviousWrittenValue();
-  u16 GetPreviousWrittenAddress();
+u8 GetPreviousWrittenValue();
+u16 GetPreviousWrittenAddress();
 
-  bool CheckInstructionsChangedAndClear();
+bool CheckInstructionsChangedAndClear();
+
+const std::vector<CallStackEntry>& GetCallStack();
+
 }
 #endif
 
@@ -58,7 +69,7 @@ namespace Debugger {
 #define EMIT_MEM_WRITE(pos, oldvalue, value, newvalue) Debugger::OnMemWrite(*this, pos, oldvalue, value, newvalue)
 #define EMIT_MEM_READ(pos, value) Debugger::OnMemRead(*this, pos, value)
 #define EMIT_ROM_UNMAP(bus) Debugger::OnRomUnmap(bus)
-#define EMIT_CALL(pc, sp, value) Debugger::OnCall(pc, sp, value)
+#define EMIT_CALL(pc, sp, value, is_interrupt) Debugger::OnCall(pc, sp, value, is_interrupt)
 #define EMIT_RET(pc, sp, value, from_interrupt) Debugger::OnReturn(pc, sp, value, from_interrupt)
 #define EMIT_JUMP_RELATIVE(pc, sp, value) Debugger::OnJumpRelative(pc, sp, value)
 #define EMIT_JUMP(pc, sp, value) Debugger::OnJump(pc, sp, value)
@@ -74,7 +85,7 @@ namespace Debugger {
 #define EMIT_MEM_WRITE(pos, oldvalue, value, newvalue)
 #define EMIT_MEM_READ(pos, value)
 #define EMIT_ROM_UNMAP(bus)
-#define EMIT_CALL(pc, sp, value)
+#define EMIT_CALL(pc, sp, value, is_interrupt)
 #define EMIT_RET(pc, sp, value, from_interrupt)
 #define EMIT_JUMP_RELATIVE(pc, sp, value)
 #define EMIT_JUMP(pc, sp, value)

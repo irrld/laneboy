@@ -2,10 +2,15 @@
 
 #include <GL/glew.h>
 
+Colori ColorFromHex(u32 value) {
+  return {(u8)((value >> 16) & 0xFF), (u8)((value >> 8) & 0xFF), (u8)(value & 0xFF)};
+}
+
 class TextureOGL : public Texture {
  public:
   TextureOGL(s32 width, s32 height) : width_(width), height_(height) {
-    data_ = std::vector<u8>(width * height * 4, 100);
+    data_ = std::vector<u8>(width * height * 4);
+    std::fill(data_.begin(), data_.end(), 0);
 
     glGenTextures(1, &id_);
     glBindTexture(GL_TEXTURE_2D, id_);
@@ -62,6 +67,9 @@ TextureWrapper::TextureWrapper(Texture& texture) : texture_(texture), data_(text
 }
 
 void TextureWrapper::SetPixel(s32 x, s32 y, Colori color) {
+  if (color.a == 0) {
+    return;
+  }
   u64 index = y * texture_.width() * 4 + x * 4; // *4 because every pixel has 4 components
   data_[index] = color.r;
   data_[index + 1] = color.g;

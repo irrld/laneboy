@@ -152,7 +152,7 @@ class CPU {
   std::unique_ptr<MemoryDevice> lcds_md_;
 
   // only in DMG mode
-  MonochromePalette bgp_;
+  u8 bgp_;
   std::unique_ptr<MemoryDevice> bgp_md_;
 
 

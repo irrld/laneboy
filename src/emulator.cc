@@ -25,6 +25,8 @@ void Emulator::Start() {
   renderer_ = CreateRenderer();
   output_ = renderer_->CreateTexture(160, 144);
   output_wrapper_ = std::make_unique<TextureWrapper>(*output_);
+  vram_output_ = renderer_->CreateTexture(32 * 8, 24 * 8);
+  vram_output_wrapper_ = std::make_unique<TextureWrapper>(*vram_output_);
   Run();
 }
 
@@ -87,13 +89,13 @@ void Emulator::StepEmulation() {
     }
     cpu_->UpdateTimers(cpu_->cycles_consumed_);
     // todo, PPU it should run at /2 cycle count in double speed mode!
-    for (int i = 0; i < cpu_->cycles_consumed_; ++i) {
+    for (int i = 0; i < cpu_->cycles_consumed_; i--) {
       ppu_->Step();
       if (ppu_->frame_complete_) {
         update_image_ = true;
       }
     }
-    next_cpu_cycle_ += std::chrono::nanoseconds(static_cast<long>(1'000'000'000 / cpu_->clock_speed_)) * cpu_->cycles_consumed_ * 4;
+    next_cpu_cycle_ += std::chrono::nanoseconds(static_cast<long>(1'000'000'000 / cpu_->clock_speed_)) * cpu_->cycles_consumed_ / 10;
   }
   auto end = clock::now();
   next_cpu_cycle_ -= std::chrono::duration_cast<std::chrono::microseconds>(end - now);
@@ -188,6 +190,8 @@ void Emulator::Render() {
     RenderDebugger();
     RenderRegisters();
     RenderMemoryViewer();
+    RenderCallStack();
+    RenderVRAM();
   }
 #endif
 }
@@ -306,6 +310,14 @@ void Emulator::RenderDebugger() {
     Debugger::Step();
   }
   ImGui::SameLine();
+  if (ImGui::Button("Next")) {
+    Debugger::Next();
+  }
+  ImGui::SameLine();
+  if (ImGui::Button("Out")) {
+    Debugger::Out();
+  }
+  ImGui::SameLine();
   if (ImGui::Button("Pause")) {
     Debugger::Pause();
   }
@@ -344,6 +356,8 @@ std::vector<std::string> Emulator::GetRegisters() {
       {"DIV: " + ToHex(cpu_->div_)},
       {"TIMA: " + ToHex(cpu_->tima_)},
       {"TMA: " + ToHex(cpu_->tma_)},
+      {" "},
+      {"IC: " + ToHex(cpu_->ic_)},
   };
   return registers;
 }
@@ -453,4 +467,60 @@ void Emulator::RenderMemoryViewer() {
 
   ImGui::End();
 }
+
+void Emulator::RenderCallStack() {
+  if (!ImGui::Begin("Call Stack")) {
+    ImGui::End();
+    return;
+  }
+
+  ImGui::BeginChild("CallStackScroll", ImVec2(0, 0), false, ImGuiWindowFlags_HorizontalScrollbar);
+
+  auto& stack = Debugger::GetCallStack();
+  for (int i = 0; i < stack.size(); ++i) {
+    auto& entry = stack[i];
+    if (entry.is_interrupt_) {
+      ImGui::Selectable(fmt::format("{}: int -> {} -> {}", std::to_string(i + 1), ToHex(entry.call_address_), ToHex(entry.return_address_)).c_str());
+    } else {
+      ImGui::Selectable(fmt::format("{}: {} -> {} -> {}", std::to_string(i + 1), ToHex(entry.instruction_address_), ToHex(entry.call_address_), ToHex(entry.return_address_)).c_str());
+    }
+  }
+
+  ImGui::EndChild();
+
+  ImGui::End();
+}
+
+void Emulator::RenderVRAM() {
+  if (!ImGui::Begin("VRAM")) {
+    ImGui::End();
+    return;
+  }
+
+  for (int i = 0; i < 16 * 8 * 3; ++i) {
+    int x = i % 16;
+    int y = i / 16;
+    TileData data = ppu_->FetchTile(i, false);
+    for (int px = 0; px < 8; ++px) {
+      for (int py = 0; py < 8; ++py) {
+        vram_output_wrapper_->SetPixel((x * 8) + px, (y * 8) + py, ppu_->GetColor(data.pixels[py][px].color, true));
+      }
+    }
+  }
+  vram_output_wrapper_->Update();
+
+  // fit the image to the window
+  ImVec2 avail = ImGui::GetContentRegionAvail();
+  float aspect_ratio = static_cast<float>(vram_output_->width()) / vram_output_->height();
+  float scaled_width = avail.x;
+  float scaled_height = avail.x / aspect_ratio;
+  if (scaled_height > avail.y) {
+    scaled_height = avail.y;
+    scaled_width = avail.y * aspect_ratio;
+  }
+  vram_output_->DrawImGui(scaled_width, scaled_height);
+
+  ImGui::End();
+}
+
 #endif

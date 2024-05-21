@@ -5,14 +5,17 @@
 #ifdef ENABLE_DEBUGGER
 
 namespace Debugger {
+
 // todo sync
 static std::unordered_map<u16, std::string> disassemble_;
 static std::array<u16, 0x10000> memory_cache_; // todo utilize this to prevent disassembling instructions over and over again
 static std::unordered_set<u16> breakpoints_;
 static std::unordered_map<u16, u8> lengths_;
 static u16 current_ = 0;
-static bool next_ = true;
+static bool step_ = true;
+static u16 next_ = 0xFFFF;
 static bool lock_ = true;
+static std::vector<CallStackEntry> call_stack_;
 static u16 previous_write_address_ = 0;
 static u8 previous_write_value_ = 0;
 static std::mutex mutex_;
@@ -26,7 +29,7 @@ void Reset() {
   disassemble_.clear();
   lengths_.clear();
   current_ = 0;
-  next_ = true;
+  step_ = true;
   previous_write_address_ = 0;
   previous_write_value_ = 0;
   instructions_changed_ = true;
@@ -62,7 +65,7 @@ void DisassembleFromMemory(MemoryBus& bus) {
   bus.panic_on_invalid_access(panic);
 }
 void Init(MemoryBus& bus) {
-  next_ = true;
+  step_ = true;
   current_ = 0;
   DisassembleFromMemory(bus);
 }
@@ -100,7 +103,8 @@ void OnEmitInstruction(MemoryBus& bus, u16 pc, u16 n, std::string name) {
 }
 
 void OnPreExecInstruction() {
-  if (next_ || HasBreakpoint(current_)) {
+  if (step_ || HasBreakpoint(current_) || next_ == current_) {
+    next_ = 0xFFFF;
     PauseHere();
   }
 }
@@ -135,11 +139,18 @@ void OnMemRead(MemoryBus& bus, u16 pos, u8 value) {
 
 }
 
-void OnCall(u16 pc, u16 sp, u16 value) {
+void OnCall(u16 pc, u16 sp, u16 value, bool is_interrupt) {
+  call_stack_.push_back({
+      .call_address_ = value,
+      .return_address_ = pc,
+      .instruction_address_ = current_,
+      .is_interrupt_ = is_interrupt
+  });
   //std::cout << "call: " << ToHex(value) << ", return address: " << ToHex(current_) << ", sp: " << ToHex(sp) << std::endl;
 }
 
 void OnReturn(u16 pc, u16 sp, u16 value, bool from_interrupt) {
+  call_stack_.pop_back();
   //std::cout << "return: " << ToHex(value) << ", current address: " << ToHex(current_) << ", sp: " << ToHex(sp) << ", int: " << BoolToStr(from_interrupt) << std::endl;
 }
 
@@ -204,19 +215,34 @@ bool IsFrozen() {
 void Step() {
   std::scoped_lock lock{mutex_};
   lock_ = false;
-  next_ = true;
+  step_ = true;
+}
+
+void Next() {
+  std::scoped_lock lock{mutex_};
+  lock_ = false;
+  next_ = current_ + lengths_[current_];
+}
+
+void Out() {
+  std::scoped_lock lock{mutex_};
+  lock_ = false;
+  if (!call_stack_.empty()) {
+    auto& data = call_stack_[call_stack_.size() - 1];
+    next_ = data.return_address_;
+  }
 }
 
 void Pause() {
   std::scoped_lock lock{mutex_};
-  next_ = true;
+  step_ = true;
 }
 
 void PauseHere() {
   {
     std::scoped_lock lock{mutex_};
     lock_ = true;
-    next_ = false;
+    step_ = false;
   }
   while (lock_) { }
 }
@@ -240,6 +266,11 @@ bool CheckInstructionsChangedAndClear() {
   instructions_changed_ = false;
   return value;
 }
+
+const std::vector<CallStackEntry>& GetCallStack() {
+  return call_stack_;
+}
+
 }
 
 

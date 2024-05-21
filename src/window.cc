@@ -22,7 +22,7 @@ class WindowGLFW : public Window {
     glfwWindowHint(GLFW_SCALE_FRAMEBUFFER, GL_TRUE);
 
     window_ = glfwCreateWindow(properties.width, properties.height, properties.title.c_str(), nullptr, nullptr);
-    glfwSetWindowSizeLimits(window_, properties.width, properties.height, properties.width, properties.height);
+    //glfwSetWindowSizeLimits(window_, properties.width, properties.height, properties.width, properties.height);
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(0);
 

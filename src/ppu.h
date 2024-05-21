@@ -10,11 +10,13 @@
 class PixelFIFO {
  public:
   void Push(Pixel pixel) {
+    assert(a_ < 16);
     pixels[a_] = pixel;
     a_++;
   }
 
   Pixel Pop() {
+    assert(a_ > 0);
     Pixel pixel = pixels[a_ - 1];
     a_--;
     return pixel;
@@ -27,8 +29,12 @@ class PixelFIFO {
   bool Has() {
     return a_ > 0;
   }
+
+  u8 Size() {
+    return a_;
+  }
  private:
-  u8 a_;
+  u8 a_ = 0;
   Pixel pixels[16];
 };
 
@@ -47,12 +53,16 @@ class PPU {
 
   void ResetFrame();
 
-  TileData GetTile(u8 index);
-
   // for final rendering
   void FillImage(Colori color);
   void SetPixel(u16 x, u16 y, Colori color);
   void UpdateImage();
+
+  u8 FetchTileIdFromBackground(u8 x, u8 y);
+  std::array<Pixel, 8> FetchTile(u16 tile_index, u8 y, bool is_background);
+
+  Colori GetColor(u8 index, ColorMode mode);
+
  public:
   EventBus& event_bus_;
   // we currently access memory directly from CPU, instead
@@ -62,7 +72,6 @@ class PPU {
   MemoryBus& bus_;
   TextureWrapper& output_wrapper_;
   u32 clock_speed_;
-  u16 cycles_consumed_; // current cycles passed during current step
   u16 vblank_lines_ = 0;
   u16 hblank_wait_ = 0;
   u16 draw_took_ = 0;
@@ -75,18 +84,15 @@ class PPU {
 
   u8 lx_;
 
-  u8 sub_scx_;
+  u8 mod_scx_;
 
   PixelFIFO bg_fifo_;
   PixelFIFO oam_fifo_;
 
   bool was_enabled_ = true;
 
-
  private:
   void SetMode(PPUMode mode);
 
-  void DrawPixel(Pixel pixel, u8 x, u8 y, bool is_background);
-  u8 FetchTileIdFromBackground(u8 x, u8 y, u8 sx, u8 sy);
-  TileData FetchTile(u8 tile_index, bool is_background);
+  void DrawPixel(Pixel pixel, u8 x, u8 y);
 };

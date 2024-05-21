@@ -333,7 +333,7 @@ class MemoryBus {
   MemoryDevice* SelectDevice(u16 address);
 
  private:
-  bool panic_on_invalid_access_ = true;
+  bool panic_on_invalid_access_ = false;
 
   std::array<std::deque<MemoryDevice*>, 0x10000> map_;
   std::array<bool, 0x10000> lock_map_;
