@@ -500,10 +500,10 @@ void Emulator::RenderVRAM() {
   for (int i = 0; i < 16 * 8 * 3; ++i) {
     int x = i % 16;
     int y = i / 16;
-    TileData data = ppu_->FetchTile(i, false);
-    for (int px = 0; px < 8; ++px) {
-      for (int py = 0; py < 8; ++py) {
-        vram_output_wrapper_->SetPixel((x * 8) + px, (y * 8) + py, ppu_->GetColor(data.pixels[py][px].color, true));
+    for (int py = 0; py < 8; ++py) {
+      std::array<Pixel, 8> row = ppu_->FetchTile(i, py, false);
+      for (int px = 0; px < 8; ++px) {
+        vram_output_wrapper_->SetPixel((x * 8) + px, (y * 8) + py, ppu_->GetColor(row[px].color, kColorModeBackground));
       }
     }
   }
