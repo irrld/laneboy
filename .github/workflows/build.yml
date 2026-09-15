@@ -1,0 +1,181 @@
+name: build
+
+on:
+  push:
+    branches: [master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GLFW_VERSION: '3.4'
+
+jobs:
+  linux:
+    name: linux-x86_64
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build libfmt-dev libglew-dev libgl1-mesa-dev xorg-dev
+
+      # Ubuntu 24.04 ships GLFW 3.3, and window.cc needs GLFW_SCALE_FRAMEBUFFER
+      # from 3.4. The default build is static, so nothing extra to ship.
+      - name: build glfw ${{ env.GLFW_VERSION }}
+        run: |
+          curl -fsSL -o glfw.tar.gz \
+            "https://github.com/glfw/glfw/archive/refs/tags/${GLFW_VERSION}.tar.gz"
+          tar xzf glfw.tar.gz
+          # GLFW 3.4 declares a 3.4 policy floor, which CMake 4 rejects.
+          # Unused, and harmless, on the 3.x the runner currently ships.
+          cmake -S "glfw-${GLFW_VERSION}" -B glfw-build -G Ninja \
+            -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="${PWD}/glfw-prefix" \
+            -DGLFW_BUILD_WAYLAND=OFF \
+            -DGLFW_BUILD_EXAMPLES=OFF \
+            -DGLFW_BUILD_TESTS=OFF \
+            -DGLFW_BUILD_DOCS=OFF
+          cmake --build glfw-build
+          cmake --install glfw-build
+
+      - name: configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="${PWD}/glfw-prefix" \
+            -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON \
+            -DCMAKE_INSTALL_RPATH='$ORIGIN'
+
+      - name: build
+        run: cmake --build build
+
+      - name: package
+        run: |
+          cmake --install build --prefix dist
+          # fmt and GLEW come from apt as shared libraries. Ship them next to
+          # the executable; $ORIGIN in the rpath picks them up from there.
+          ldd dist/gameboy_emu | awk '/libfmt|libGLEW/ {print $3}' \
+            | xargs -r -I{} cp -L {} dist/
+          tar czf laneboy-linux-x86_64.tar.gz -C dist .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: laneboy-linux-x86_64
+          path: laneboy-linux-x86_64.tar.gz
+          if-no-files-found: error
+
+  macos:
+    name: macos-arm64
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: install dependencies
+        run: brew install --quiet ninja fmt glew glfw dylibbundler
+
+      - name: configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_PREFIX_PATH="$(brew --prefix)"
+
+      - name: build
+        run: cmake --build build
+
+      - name: package
+        run: |
+          cmake --install build --prefix dist
+          # Homebrew dylibs live under /opt/homebrew, which the target machine
+          # will not have. Copy them in and rewrite the load paths.
+          dylibbundler -od -b -x dist/gameboy_emu -d dist/libs -p @executable_path/libs
+          tar czf laneboy-macos-arm64.tar.gz -C dist .
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: laneboy-macos-arm64
+          path: laneboy-macos-arm64.tar.gz
+          if-no-files-found: error
+
+  windows:
+    name: windows-x86_64
+    runs-on: windows-2022
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      # The source is GCC/Clang flavored: util.h includes <cxxabi.h> and the
+      # register and LCDC unions rely on GCC bitfield packing. MinGW-w64 builds
+      # it as written; MSVC would need both reworked first.
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            zip
+          pacboy: >-
+            toolchain:p
+            cmake:p
+            ninja:p
+            fmt:p
+            glew:p
+            glfw:p
+
+      - name: configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: build
+        run: cmake --build build
+
+      - name: package
+        run: |
+          cmake --install build --prefix dist
+          # Ship the MinGW runtime and the dependency DLLs alongside the exe.
+          ldd dist/gameboy_emu.exe | awk '/=> \/mingw64/ {print $3}' \
+            | xargs -r -I{} cp -n {} dist/
+          # If that finds nothing the archive still builds but will not run on
+          # a machine without MSYS2, so fail here instead of shipping it.
+          test -f dist/libstdc++-6.dll
+          (cd dist && zip -qr ../laneboy-windows-x86_64.zip .)
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: laneboy-windows-x86_64
+          path: laneboy-windows-x86_64.zip
+          if-no-files-found: error
+
+  release:
+    needs: [linux, macos, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "${GITHUB_REF_NAME}" --generate-notes artifacts/*/*
