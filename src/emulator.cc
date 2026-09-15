@@ -89,7 +89,7 @@ void Emulator::StepEmulation() {
     }
     cpu_->UpdateTimers(cpu_->cycles_consumed_);
     // todo, PPU it should run at /2 cycle count in double speed mode!
-    for (int i = 0; i < cpu_->cycles_consumed_; i--) {
+    for (u32 i = 0; i < cpu_->cycles_consumed_; i++) {
       ppu_->Step();
       if (ppu_->frame_complete_) {
         update_image_ = true;
