@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <limits>
 #include <memory>
 #include <iostream>
@@ -124,6 +125,11 @@ using s16 = int16_t;
 using s32 = int32_t;
 
 std::vector<u8> LoadBin(const std::string& path);
+
+// Resolves a relative asset path against the executable directory first, then
+// the working directory, so assets are found regardless of where the binary is
+// launched from. Returns an empty path when the asset does not exist.
+std::filesystem::path AssetPath(const std::string& relative);
 
 inline std::string BoolToStr(bool b) {
   return b ? "true" : "false";
