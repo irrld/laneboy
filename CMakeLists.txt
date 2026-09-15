@@ -5,6 +5,11 @@ set(CMAKE_CXX_STANDARD 20)
 #set(CMAKE_BUILD_TYPE Debug)
 #add_definitions(-DDEBUG=1)
 
+find_package(fmt CONFIG REQUIRED)
+find_package(OpenGL REQUIRED)
+find_package(GLEW REQUIRED)
+find_package(glfw3 CONFIG REQUIRED)
+
 add_executable(gameboy_emu
         src/main.cc
         src/register.cc
@@ -22,7 +27,9 @@ add_executable(gameboy_emu
         src/tinyfiledialogs.c
 )
 include_directories(src)
-target_compile_options(gameboy_emu PRIVATE -frtti)
+if(NOT MSVC)
+    target_compile_options(gameboy_emu PRIVATE $<$<COMPILE_LANGUAGE:CXX>:-frtti>)
+endif()
 #target_compile_options(gameboy_emu PRIVATE -frtti -fsanitize=address)
 #target_link_options(gameboy_emu PRIVATE -fsanitize=address)
 
@@ -47,14 +54,15 @@ add_library(gbit
         ${GBIT_SOURCES}
 )
 
-find_package(fmt CONFIG REQUIRED)
-find_package(OpenGL REQUIRED)
-find_package(GLEW REQUIRED)
-find_package(GLFW3 REQUIRED)
-
 target_link_libraries(gameboy_emu
         fmt::fmt
         imgui
         gbit
 )
 
+# tinyfiledialogs talks to the common dialog and shell APIs directly.
+if(WIN32)
+    target_link_libraries(gameboy_emu comdlg32 ole32 shell32 user32)
+endif()
+
+install(TARGETS gameboy_emu RUNTIME DESTINATION .)
