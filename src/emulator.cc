@@ -1,8 +1,6 @@
 #include "emulator.h"
 #include "debug.h"
-#include <cstdlib>
 #include <unordered_set>
-#include "tinyfiledialogs.h"
 
 Emulator::Emulator() {
   event_bus_ = nullptr;
@@ -16,15 +14,6 @@ Emulator::Emulator() {
 }
 
 void Emulator::Start() {
-  // tinyfiledialogs treats an unset DISPLAY as "no graphical session" and falls
-  // back to a console prompt, so nothing appears on screen on a Wayland session
-  // without XWayland. zenity and kdialog both run natively under Wayland.
-#if !defined(_WIN32) && !defined(__APPLE__)
-  if (std::getenv("DISPLAY") == nullptr && std::getenv("WAYLAND_DISPLAY") != nullptr) {
-    tinyfd_assumeGraphicDisplay = 1;
-  }
-#endif
-
   event_bus_ = std::make_unique<EventBus>();
   // startup window and prepare opengl
   window_ = CreateWindow({
@@ -169,26 +158,7 @@ void Emulator::Render() {
   if (ImGui::BeginMainMenuBar()) {
     if (ImGui::BeginMenu("File")) {
       if (ImGui::MenuItem("Load ROM...")) {
-        // Define the file filter pattern
-        char const *file_filter_patterns[2] = { "*.gb", "*.rom" };
-
-        // Open a file dialog and get the file name
-        char const *file_name = tinyfd_openFileDialog(
-            "Open Game Boy ROM",
-            "",
-            2,
-            file_filter_patterns,
-            NULL,
-            0
-        );
-
-        if (file_name) {
-          LoadCartridge(file_name);
-        } else {
-          // Null means cancelled, or that tinyfiledialogs found no dialog
-          // program to run. It records what it picked in tinyfd_response.
-          std::cout << "no rom selected (dialog backend: " << tinyfd_response << ")" << std::endl;
-        }
+        rom_browser_.Open("Open Game Boy ROM", {".gb", ".gbc", ".rom"});
       }
       if (!cartridge_path_.empty() && ImGui::MenuItem("Restart")) {
         LoadCartridge(cartridge_path_);
@@ -209,6 +179,11 @@ void Emulator::Render() {
   }
   output_->DrawImGui(scaled_width, scaled_height);
   ImGui::End();
+
+  std::string picked_rom;
+  if (rom_browser_.Draw(picked_rom)) {
+    LoadCartridge(picked_rom);
+  }
 
 #ifdef ENABLE_DEBUGGER
   if (cpu_) {

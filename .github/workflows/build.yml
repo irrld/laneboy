@@ -70,12 +70,13 @@ jobs:
           # the executable; $ORIGIN in the rpath picks them up from there.
           ldd dist/gameboy_emu | awk '/libfmt|libGLEW/ {print $3}' \
             | xargs -r -I{} cp -L {} dist/
-          tar czf laneboy-linux-x86_64.tar.gz -C dist .
 
+      # Upload the staged files as they are. Pre-archiving here would land
+      # inside the zip the artifact API always adds, giving a zip of a tarball.
       - uses: actions/upload-artifact@v4
         with:
           name: laneboy-linux-x86_64
-          path: laneboy-linux-x86_64.tar.gz
+          path: dist/
           if-no-files-found: error
 
   macos:
@@ -104,12 +105,11 @@ jobs:
           # Homebrew dylibs live under /opt/homebrew, which the target machine
           # will not have. Copy them in and rewrite the load paths.
           dylibbundler -od -b -x dist/gameboy_emu -d dist/libs -p @executable_path/libs
-          tar czf laneboy-macos-arm64.tar.gz -C dist .
 
       - uses: actions/upload-artifact@v4
         with:
           name: laneboy-macos-arm64
-          path: laneboy-macos-arm64.tar.gz
+          path: dist/
           if-no-files-found: error
 
   windows:
@@ -130,8 +130,6 @@ jobs:
         with:
           msystem: MINGW64
           update: true
-          install: >-
-            zip
           pacboy: >-
             toolchain:p
             cmake:p
@@ -155,12 +153,11 @@ jobs:
           # If that finds nothing the archive still builds but will not run on
           # a machine without MSYS2, so fail here instead of shipping it.
           test -f dist/libstdc++-6.dll
-          (cd dist && zip -qr ../laneboy-windows-x86_64.zip .)
 
       - uses: actions/upload-artifact@v4
         with:
           name: laneboy-windows-x86_64
-          path: laneboy-windows-x86_64.zip
+          path: dist/
           if-no-files-found: error
 
   release:
@@ -174,8 +171,27 @@ jobs:
         with:
           path: artifacts
 
+      # One asset per platform: the bare executable when a build is self
+      # contained, otherwise a single zip. No nested archives either way.
+      - name: assemble assets
+        run: |
+          mkdir -p release
+          for dir in artifacts/*/; do
+            name="$(basename "${dir}")"
+            if [ "$(find "${dir}" -type f | wc -l)" -eq 1 ]; then
+              file="$(find "${dir}" -type f)"
+              case "${file}" in
+                *.exe) cp "${file}" "release/${name}.exe" ;;
+                *)     cp "${file}" "release/${name}" ;;
+              esac
+            else
+              (cd "${dir}" && zip -qr "${GITHUB_WORKSPACE}/release/${name}.zip" .)
+            fi
+          done
+          ls -l release
+
       - name: publish
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "${GITHUB_REF_NAME}" --generate-notes artifacts/*/*
+        run: gh release create "${GITHUB_REF_NAME}" --generate-notes release/*

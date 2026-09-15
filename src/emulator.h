@@ -2,6 +2,7 @@
 
 #include "cartridge.h"
 #include "cpu.h"
+#include "file_browser.h"
 #include "ppu.h"
 #include "util.h"
 #include "window.h"
@@ -31,6 +32,7 @@ class Emulator {
   std::unique_ptr<TextureWrapper> output_wrapper_;
   std::unique_ptr<TextureWrapper> vram_output_wrapper_;
   bool update_image_ = false;
+  FileBrowser rom_browser_;
 
   std::unique_ptr<MemoryBus> bus_;
   std::unique_ptr<CPU> cpu_;
