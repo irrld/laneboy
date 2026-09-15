@@ -9,6 +9,22 @@
 static void glfw_error_callback(int error, const char* description) {
   fprintf(stderr, "GLFW Error %d: %s\n", error, description);
 }
+
+// Font size in logical points, before the display scale is applied.
+constexpr float kFontSize = 13.0f;
+
+// Scale of the display the window opens on. The font atlas is rasterized at
+// this density so text stays sharp instead of assuming a fixed 2x display.
+static float ContentScale() {
+  GLFWmonitor* monitor = glfwGetPrimaryMonitor();
+  if (!monitor) {
+    return 1.0f;
+  }
+  float x_scale = 1.0f;
+  float y_scale = 1.0f;
+  glfwGetMonitorContentScale(monitor, &x_scale, &y_scale);
+  return x_scale > 0.0f ? x_scale : 1.0f;
+}
 // todo maybe extract imgui stuff to another class
 
 class WindowGLFW : public Window {
@@ -28,9 +44,7 @@ class WindowGLFW : public Window {
     glfwMakeContextCurrent(window_);
     glfwSwapInterval(0);
 
-    int width, height;
     int framebuffer_width, framebuffer_height;
-    glfwGetWindowSize(window_, &width, &height);
     glfwGetFramebufferSize(window_, &framebuffer_width, &framebuffer_height);
 
     glfwShowWindow(window_);
@@ -49,17 +63,20 @@ class WindowGLFW : public Window {
       style.Colors[ImGuiCol_WindowBg].w = 1.0f;
     }
 
-    io.DisplaySize = ImVec2((float)width, (float)height);
-    io.DisplayFramebufferScale = ImVec2((float)framebuffer_width / width, (float)framebuffer_height / height);
-    float scaleFactor = 0.5f;
-    io.FontGlobalScale = scaleFactor;
-    // Packaged builds do not ship the font, so fall back rather than assert.
-    const char* font_path = "fonts/RobotoMono-Medium.ttf";
-    if (std::filesystem::exists(font_path)) {
-      io.Fonts->AddFontFromFileTTF(font_path, 25);
+    // The GLFW backend rewrites DisplaySize and DisplayFramebufferScale every
+    // frame, so ImGui geometry stays in logical units and only the font atlas
+    // has to account for the display scale.
+    float scale = ContentScale();
+    std::filesystem::path font = AssetPath("fonts/RobotoMono-Medium.ttf");
+    if (!font.empty()) {
+      io.Fonts->AddFontFromFileTTF(font.string().c_str(), kFontSize * scale);
     } else {
-      io.Fonts->AddFontDefault();
+      // Packaged builds do not ship the font, so fall back rather than assert.
+      ImFontConfig config;
+      config.SizePixels = kFontSize * scale;
+      io.Fonts->AddFontDefault(&config);
     }
+    io.FontGlobalScale = 1.0f / scale;
 
     // Setup Dear ImGui style
     //ImGui::StyleColorsDark();
