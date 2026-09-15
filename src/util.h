@@ -1,6 +1,7 @@
 #pragma once
 
 #include <limits>
+#include <memory>
 #include <iostream>
 #include <cassert>
 #include <bitset>

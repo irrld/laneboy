@@ -1,5 +1,6 @@
 #include "debug.h"
 #include "instructions.h"
+#include <mutex>
 #include <unordered_set>
 
 #ifdef ENABLE_DEBUGGER

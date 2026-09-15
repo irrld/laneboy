@@ -1,6 +1,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "util.h"
 #include "imgui.h"
 
