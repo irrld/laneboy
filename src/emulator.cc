@@ -44,7 +44,13 @@ bool Emulator::LoadCartridge(const std::string& file_path) {
   bus_ = nullptr;
 
   cartridge_path_ = file_path;
-  std::unique_ptr<Cartridge> cartridge = std::make_unique<Cartridge>(file_path);
+  std::unique_ptr<Cartridge> cartridge;
+  try {
+    cartridge = std::make_unique<Cartridge>(file_path);
+  } catch (const std::exception& e) {
+    std::cout << "cannot read cartridge: " << e.what() << std::endl;
+    return false;
+  }
   if (!cartridge->is_valid()) {
     std::cout << "cartridge is not valid, shutting down!" << std::endl;
     return false;
@@ -55,7 +61,12 @@ bool Emulator::LoadCartridge(const std::string& file_path) {
   cpu_ = std::make_unique<CPU>(*event_bus_, *bus_);
 
   // first load the rom, this will have priority over the cartridge memory
-  cpu_->LoadBootRom(LoadBin("rom/fast_boot.bin"));
+  std::filesystem::path boot_rom = AssetPath("rom/fast_boot.bin");
+  if (boot_rom.empty()) {
+    std::cout << "boot rom rom/fast_boot.bin not found, starting without it" << std::endl;
+  } else {
+    cpu_->LoadBootRom(LoadBin(boot_rom.string()));
+  }
 
   ppu_ = std::make_unique<PPU>(*event_bus_, *cpu_, *bus_, *output_wrapper_);
 
@@ -163,6 +174,10 @@ void Emulator::Render() {
 
         if (file_name) {
           LoadCartridge(file_name);
+        } else {
+          // tinyfiledialogs returns null when no dialog backend is available,
+          // which on Linux means zenity, kdialog or yad is not installed.
+          std::cout << "no rom selected, or no file dialog is available" << std::endl;
         }
       }
       if (!cartridge_path_.empty() && ImGui::MenuItem("Restart")) {
