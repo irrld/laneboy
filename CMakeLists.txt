@@ -22,9 +22,9 @@ add_executable(gameboy_emu
         src/cartridge.cc
         src/ppu.cc
         src/emulator.cc
+        src/file_browser.cc
         src/window.cc
         src/renderer.cc
-        src/tinyfiledialogs.c
 )
 include_directories(src)
 if(NOT MSVC)
@@ -59,11 +59,6 @@ target_link_libraries(gameboy_emu
         imgui
         gbit
 )
-
-# tinyfiledialogs talks to the common dialog and shell APIs directly.
-if(WIN32)
-    target_link_libraries(gameboy_emu comdlg32 ole32 shell32 user32)
-endif()
 
 install(TARGETS gameboy_emu RUNTIME DESTINATION .)
 
