@@ -1,5 +1,7 @@
 #pragma once
 
+#include <memory>
+
 #include "alu.h"
 #include "cartridge.h"
 #include "event.h"

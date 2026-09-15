@@ -1,6 +1,7 @@
 #pragma once
 
 #include "util.h"
+#include <functional>
 #include <stack>
 #include <utility>
 
