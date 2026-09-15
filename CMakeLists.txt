@@ -66,3 +66,16 @@ if(WIN32)
 endif()
 
 install(TARGETS gameboy_emu RUNTIME DESTINATION .)
+
+# Assets are looked up next to the executable first, so copy them there rather
+# than depending on the working directory. rom/ is produced by asm/gen.sh and is
+# not checked in, so both directories are optional.
+foreach(asset_dir fonts rom)
+    if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${asset_dir}")
+        add_custom_command(TARGET gameboy_emu POST_BUILD
+                COMMAND ${CMAKE_COMMAND} -E copy_directory
+                "${CMAKE_CURRENT_SOURCE_DIR}/${asset_dir}"
+                "$<TARGET_FILE_DIR:gameboy_emu>/${asset_dir}")
+        install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/${asset_dir}" DESTINATION .)
+    endif()
+endforeach()
