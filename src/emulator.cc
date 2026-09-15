@@ -1,5 +1,6 @@
 #include "emulator.h"
 #include "debug.h"
+#include <cstdlib>
 #include <unordered_set>
 #include "tinyfiledialogs.h"
 
@@ -15,6 +16,15 @@ Emulator::Emulator() {
 }
 
 void Emulator::Start() {
+  // tinyfiledialogs treats an unset DISPLAY as "no graphical session" and falls
+  // back to a console prompt, so nothing appears on screen on a Wayland session
+  // without XWayland. zenity and kdialog both run natively under Wayland.
+#if !defined(_WIN32) && !defined(__APPLE__)
+  if (std::getenv("DISPLAY") == nullptr && std::getenv("WAYLAND_DISPLAY") != nullptr) {
+    tinyfd_assumeGraphicDisplay = 1;
+  }
+#endif
+
   event_bus_ = std::make_unique<EventBus>();
   // startup window and prepare opengl
   window_ = CreateWindow({
@@ -175,9 +185,9 @@ void Emulator::Render() {
         if (file_name) {
           LoadCartridge(file_name);
         } else {
-          // tinyfiledialogs returns null when no dialog backend is available,
-          // which on Linux means zenity, kdialog or yad is not installed.
-          std::cout << "no rom selected, or no file dialog is available" << std::endl;
+          // Null means cancelled, or that tinyfiledialogs found no dialog
+          // program to run. It records what it picked in tinyfd_response.
+          std::cout << "no rom selected (dialog backend: " << tinyfd_response << ")" << std::endl;
         }
       }
       if (!cartridge_path_.empty() && ImGui::MenuItem("Restart")) {
