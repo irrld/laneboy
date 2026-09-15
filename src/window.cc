@@ -1,5 +1,7 @@
 #include "window.h"
 
+#include <filesystem>
+
 #include <GLFW/glfw3.h>
 #include "backends/imgui_impl_glfw.h"
 #include "backends/imgui_impl_opengl3.h"
@@ -51,7 +53,13 @@ class WindowGLFW : public Window {
     io.DisplayFramebufferScale = ImVec2((float)framebuffer_width / width, (float)framebuffer_height / height);
     float scaleFactor = 0.5f;
     io.FontGlobalScale = scaleFactor;
-    io.Fonts->AddFontFromFileTTF("fonts/RobotoMono-Medium.ttf", 25);
+    // Packaged builds do not ship the font, so fall back rather than assert.
+    const char* font_path = "fonts/RobotoMono-Medium.ttf";
+    if (std::filesystem::exists(font_path)) {
+      io.Fonts->AddFontFromFileTTF(font_path, 25);
+    } else {
+      io.Fonts->AddFontDefault();
+    }
 
     // Setup Dear ImGui style
     //ImGui::StyleColorsDark();
